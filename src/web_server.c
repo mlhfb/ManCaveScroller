@@ -34,11 +34,18 @@ static esp_err_t status_handler(httpd_req_t *req)
     }
 
     cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "text", s->text);
-    cJSON *color = cJSON_AddObjectToObject(root, "color");
-    cJSON_AddNumberToObject(color, "r", s->color_r);
-    cJSON_AddNumberToObject(color, "g", s->color_g);
-    cJSON_AddNumberToObject(color, "b", s->color_b);
+
+    cJSON *msgs = cJSON_AddArrayToObject(root, "messages");
+    for (int i = 0; i < MAX_MESSAGES; i++) {
+        cJSON *m = cJSON_CreateObject();
+        cJSON_AddStringToObject(m, "text", s->messages[i].text);
+        cJSON_AddNumberToObject(m, "r", s->messages[i].color_r);
+        cJSON_AddNumberToObject(m, "g", s->messages[i].color_g);
+        cJSON_AddNumberToObject(m, "b", s->messages[i].color_b);
+        cJSON_AddBoolToObject(m, "enabled", s->messages[i].enabled);
+        cJSON_AddItemToArray(msgs, m);
+    }
+
     cJSON_AddNumberToObject(root, "speed", s->speed);
     cJSON_AddNumberToObject(root, "brightness", s->brightness);
     cJSON_AddStringToObject(root, "wifi_mode", mode_str);
@@ -57,14 +64,18 @@ static esp_err_t status_handler(httpd_req_t *req)
 static cJSON *read_json_body(httpd_req_t *req)
 {
     int total_len = req->content_len;
-    if (total_len <= 0 || total_len > 512) return NULL;
+    if (total_len <= 0 || total_len > 4096) return NULL;
 
-    char buf[513];
+    char *buf = malloc(total_len + 1);
+    if (!buf) return NULL;
+
     int received = httpd_req_recv(req, buf, total_len);
-    if (received <= 0) return NULL;
+    if (received <= 0) { free(buf); return NULL; }
     buf[received] = '\0';
 
-    return cJSON_Parse(buf);
+    cJSON *json = cJSON_Parse(buf);
+    free(buf);
+    return json;
 }
 
 static void send_ok(httpd_req_t *req, const char *msg)
@@ -84,7 +95,51 @@ static void send_err(httpd_req_t *req, const char *msg)
     httpd_resp_send(req, resp, strlen(resp));
 }
 
-// POST /api/text — update scrolling text
+// POST /api/messages — update all messages
+static esp_err_t messages_handler(httpd_req_t *req)
+{
+    cJSON *json = read_json_body(req);
+    if (!json) { send_err(req, "Invalid JSON"); return ESP_OK; }
+
+    cJSON *msgs = cJSON_GetObjectItem(json, "messages");
+    if (!cJSON_IsArray(msgs)) {
+        cJSON_Delete(json);
+        send_err(req, "Missing 'messages' array");
+        return ESP_OK;
+    }
+
+    app_settings_t *s = settings_get();
+    int count = cJSON_GetArraySize(msgs);
+    if (count > MAX_MESSAGES) count = MAX_MESSAGES;
+
+    for (int i = 0; i < count; i++) {
+        cJSON *m = cJSON_GetArrayItem(msgs, i);
+        if (!cJSON_IsObject(m)) continue;
+
+        cJSON *text = cJSON_GetObjectItem(m, "text");
+        if (cJSON_IsString(text)) {
+            strncpy(s->messages[i].text, text->valuestring, SETTINGS_MAX_TEXT_LEN);
+            s->messages[i].text[SETTINGS_MAX_TEXT_LEN] = '\0';
+        }
+
+        cJSON *r = cJSON_GetObjectItem(m, "r");
+        cJSON *g = cJSON_GetObjectItem(m, "g");
+        cJSON *b = cJSON_GetObjectItem(m, "b");
+        if (cJSON_IsNumber(r)) s->messages[i].color_r = (uint8_t)r->valueint;
+        if (cJSON_IsNumber(g)) s->messages[i].color_g = (uint8_t)g->valueint;
+        if (cJSON_IsNumber(b)) s->messages[i].color_b = (uint8_t)b->valueint;
+
+        cJSON *en = cJSON_GetObjectItem(m, "enabled");
+        if (cJSON_IsBool(en)) s->messages[i].enabled = cJSON_IsTrue(en);
+    }
+
+    settings_save(s);
+    cJSON_Delete(json);
+    send_ok(req, "Messages updated");
+    return ESP_OK;
+}
+
+// POST /api/text — update message[0] text (legacy)
 static esp_err_t text_handler(httpd_req_t *req)
 {
     cJSON *json = read_json_body(req);
@@ -98,9 +153,10 @@ static esp_err_t text_handler(httpd_req_t *req)
     }
 
     app_settings_t *s = settings_get();
-    strncpy(s->text, text->valuestring, SETTINGS_MAX_TEXT_LEN);
-    s->text[SETTINGS_MAX_TEXT_LEN] = '\0';
-    scroller_set_text(s->text);
+    strncpy(s->messages[0].text, text->valuestring, SETTINGS_MAX_TEXT_LEN);
+    s->messages[0].text[SETTINGS_MAX_TEXT_LEN] = '\0';
+    s->messages[0].enabled = true;
+    scroller_set_text(s->messages[0].text);
     settings_save(s);
 
     cJSON_Delete(json);
@@ -108,7 +164,7 @@ static esp_err_t text_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// POST /api/color — update text color
+// POST /api/color — update message[0] color (legacy)
 static esp_err_t color_handler(httpd_req_t *req)
 {
     cJSON *json = read_json_body(req);
@@ -124,10 +180,10 @@ static esp_err_t color_handler(httpd_req_t *req)
     }
 
     app_settings_t *s = settings_get();
-    s->color_r = (uint8_t)r->valueint;
-    s->color_g = (uint8_t)g->valueint;
-    s->color_b = (uint8_t)b->valueint;
-    scroller_set_color(s->color_r, s->color_g, s->color_b);
+    s->messages[0].color_r = (uint8_t)r->valueint;
+    s->messages[0].color_g = (uint8_t)g->valueint;
+    s->messages[0].color_b = (uint8_t)b->valueint;
+    scroller_set_color(s->messages[0].color_r, s->messages[0].color_g, s->messages[0].color_b);
     settings_save(s);
 
     cJSON_Delete(json);
@@ -232,6 +288,7 @@ void web_server_start(void)
     httpd_uri_t uris[] = {
         {.uri = "/",               .method = HTTP_GET,  .handler = root_handler},
         {.uri = "/api/status",     .method = HTTP_GET,  .handler = status_handler},
+        {.uri = "/api/messages",   .method = HTTP_POST, .handler = messages_handler},
         {.uri = "/api/text",       .method = HTTP_POST, .handler = text_handler},
         {.uri = "/api/color",      .method = HTTP_POST, .handler = color_handler},
         {.uri = "/api/speed",      .method = HTTP_POST, .handler = speed_handler},

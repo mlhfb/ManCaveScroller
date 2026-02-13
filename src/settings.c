@@ -1,5 +1,6 @@
 #include "settings.h"
 #include <string.h>
+#include <stdio.h>
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "esp_log.h"
@@ -10,10 +11,13 @@ static const char *NVS_NAMESPACE = "mancave";
 static app_settings_t current_settings;
 
 static const app_settings_t default_settings = {
-    .text = "Hello Man Cave!",
-    .color_r = 255,
-    .color_g = 0,
-    .color_b = 0,
+    .messages = {
+        { .text = "Hello Man Cave!", .color_r = 255, .color_g = 0, .color_b = 0, .enabled = true },
+        { .text = "", .color_r = 0, .color_g = 255, .color_b = 0, .enabled = false },
+        { .text = "", .color_r = 0, .color_g = 0, .color_b = 255, .enabled = false },
+        { .text = "", .color_r = 255, .color_g = 255, .color_b = 0, .enabled = false },
+        { .text = "", .color_r = 255, .color_g = 0, .color_b = 255, .enabled = false },
+    },
     .speed = 5,
     .brightness = 32,
     .wifi_ssid = "",
@@ -23,7 +27,7 @@ static const app_settings_t default_settings = {
 static void load_from_nvs(void)
 {
     nvs_handle_t handle;
-    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
     if (err != ESP_OK) {
         ESP_LOGI(TAG, "No saved settings, using defaults");
         memcpy(&current_settings, &default_settings, sizeof(app_settings_t));
@@ -33,12 +37,47 @@ static void load_from_nvs(void)
     // Start with defaults, then override with stored values
     memcpy(&current_settings, &default_settings, sizeof(app_settings_t));
 
-    size_t len = sizeof(current_settings.text);
-    nvs_get_str(handle, "text", current_settings.text, &len);
+    // Migrate old single-message format if present
+    char old_text[SETTINGS_MAX_TEXT_LEN + 1] = "";
+    size_t len = sizeof(old_text);
+    if (nvs_get_str(handle, "text", old_text, &len) == ESP_OK && strlen(old_text) > 0) {
+        ESP_LOGI(TAG, "Migrating old single-message to messages[0]");
+        strncpy(current_settings.messages[0].text, old_text, SETTINGS_MAX_TEXT_LEN);
+        current_settings.messages[0].enabled = true;
+        nvs_get_u8(handle, "color_r", &current_settings.messages[0].color_r);
+        nvs_get_u8(handle, "color_g", &current_settings.messages[0].color_g);
+        nvs_get_u8(handle, "color_b", &current_settings.messages[0].color_b);
+        // Remove old keys after migration
+        nvs_erase_key(handle, "text");
+        nvs_erase_key(handle, "color_r");
+        nvs_erase_key(handle, "color_g");
+        nvs_erase_key(handle, "color_b");
+        nvs_commit(handle);
+    }
 
-    nvs_get_u8(handle, "color_r", &current_settings.color_r);
-    nvs_get_u8(handle, "color_g", &current_settings.color_g);
-    nvs_get_u8(handle, "color_b", &current_settings.color_b);
+    // Load messages array
+    for (int i = 0; i < MAX_MESSAGES; i++) {
+        char key[16];
+
+        snprintf(key, sizeof(key), "msg%d_text", i);
+        len = sizeof(current_settings.messages[i].text);
+        nvs_get_str(handle, key, current_settings.messages[i].text, &len);
+
+        snprintf(key, sizeof(key), "msg%d_r", i);
+        nvs_get_u8(handle, key, &current_settings.messages[i].color_r);
+
+        snprintf(key, sizeof(key), "msg%d_g", i);
+        nvs_get_u8(handle, key, &current_settings.messages[i].color_g);
+
+        snprintf(key, sizeof(key), "msg%d_b", i);
+        nvs_get_u8(handle, key, &current_settings.messages[i].color_b);
+
+        snprintf(key, sizeof(key), "msg%d_en", i);
+        uint8_t en = current_settings.messages[i].enabled ? 1 : 0;
+        nvs_get_u8(handle, key, &en);
+        current_settings.messages[i].enabled = (en != 0);
+    }
+
     nvs_get_u8(handle, "speed", &current_settings.speed);
     nvs_get_u8(handle, "bright", &current_settings.brightness);
 
@@ -69,10 +108,25 @@ esp_err_t settings_save(const app_settings_t *settings)
 
     memcpy(&current_settings, settings, sizeof(app_settings_t));
 
-    nvs_set_str(handle, "text", current_settings.text);
-    nvs_set_u8(handle, "color_r", current_settings.color_r);
-    nvs_set_u8(handle, "color_g", current_settings.color_g);
-    nvs_set_u8(handle, "color_b", current_settings.color_b);
+    for (int i = 0; i < MAX_MESSAGES; i++) {
+        char key[16];
+
+        snprintf(key, sizeof(key), "msg%d_text", i);
+        nvs_set_str(handle, key, current_settings.messages[i].text);
+
+        snprintf(key, sizeof(key), "msg%d_r", i);
+        nvs_set_u8(handle, key, current_settings.messages[i].color_r);
+
+        snprintf(key, sizeof(key), "msg%d_g", i);
+        nvs_set_u8(handle, key, current_settings.messages[i].color_g);
+
+        snprintf(key, sizeof(key), "msg%d_b", i);
+        nvs_set_u8(handle, key, current_settings.messages[i].color_b);
+
+        snprintf(key, sizeof(key), "msg%d_en", i);
+        nvs_set_u8(handle, key, current_settings.messages[i].enabled ? 1 : 0);
+    }
+
     nvs_set_u8(handle, "speed", current_settings.speed);
     nvs_set_u8(handle, "bright", current_settings.brightness);
     nvs_set_str(handle, "wifi_ssid", current_settings.wifi_ssid);

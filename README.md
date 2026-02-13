@@ -7,7 +7,8 @@ WiFi-controlled scrolling LED display built on ESP32. Set your message, color, s
 ## Features
 
 - **Scrolling text** on a WS2812B 8x32 LED panel (256 pixels)
-- **Web UI** for real-time control — text, color, speed, brightness
+- **Multiple messages** — up to 5 custom messages, each with its own color, cycling automatically
+- **Web UI** for real-time control — messages, color, speed, brightness
 - **AP + STA WiFi** — creates its own hotspot for setup, then connects to your network
 - **Captive portal** — auto-redirects to the config page when connected to the AP
 - **Persistent settings** — saved to NVS flash, survives reboots
@@ -53,9 +54,10 @@ pio device monitor -b 115200
 | Method | Endpoint | Body | Purpose |
 |--------|----------|------|---------|
 | `GET` | `/` | — | Web UI |
-| `GET` | `/api/status` | — | Current settings + WiFi status |
-| `POST` | `/api/text` | `{"text":"Hello!"}` | Set scroll text |
-| `POST` | `/api/color` | `{"r":255,"g":0,"b":0}` | Set text color |
+| `GET` | `/api/status` | — | Current settings, messages, WiFi status |
+| `POST` | `/api/messages` | `{"messages":[...]}` | Update all 5 messages (text, color, enabled) |
+| `POST` | `/api/text` | `{"text":"Hello!"}` | Set message 1 text (legacy) |
+| `POST` | `/api/color` | `{"r":255,"g":0,"b":0}` | Set message 1 color (legacy) |
 | `POST` | `/api/speed` | `{"speed":5}` | Set scroll speed (1-10) |
 | `POST` | `/api/brightness` | `{"brightness":32}` | Set brightness (1-255) |
 | `POST` | `/api/wifi` | `{"ssid":"...","password":"..."}` | Connect to WiFi |

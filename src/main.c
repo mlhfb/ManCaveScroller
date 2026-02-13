@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
@@ -40,6 +41,27 @@ static void config_button_init(void)
     gpio_isr_handler_add(CONFIG_BUTTON_GPIO, button_isr_handler, NULL);
 }
 
+// Find next enabled message index, wrapping around. Returns -1 if none enabled.
+static int next_enabled_message(const app_settings_t *s, int current)
+{
+    for (int i = 1; i <= MAX_MESSAGES; i++) {
+        int idx = (current + i) % MAX_MESSAGES;
+        if (s->messages[idx].enabled && strlen(s->messages[idx].text) > 0) {
+            return idx;
+        }
+    }
+    return -1;
+}
+
+// Load a message into the scroller by index
+static void load_message(const app_settings_t *s, int idx)
+{
+    scroller_set_text(s->messages[idx].text);
+    scroller_set_color(s->messages[idx].color_r,
+                       s->messages[idx].color_g,
+                       s->messages[idx].color_b);
+}
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "ManCaveScroller starting...");
@@ -65,7 +87,6 @@ void app_main(void)
 
     // Initialize scroller state
     scroller_init();
-    scroller_set_color(settings->color_r, settings->color_g, settings->color_b);
     scroller_set_speed(settings->speed);
 
     // Start WiFi (blocks until connected or falls back to AP)
@@ -73,12 +94,15 @@ void app_main(void)
     wifi_manager_start();
     web_server_start();
 
-    // In STA mode, compose display text with IP; in AP mode, wifi_manager already set text
+    // Load first enabled message (in AP mode, wifi_manager may have set text already)
+    int current_msg = -1;
     if (wifi_manager_get_mode() == WIFI_MGR_MODE_STA) {
-        char display_text[SCROLLER_MAX_TEXT_LEN + 64];
-        snprintf(display_text, sizeof(display_text),
-                 "%s     Press button to enter configuration", settings->text);
-        scroller_set_text(display_text);
+        current_msg = next_enabled_message(settings, MAX_MESSAGES - 1);
+        if (current_msg >= 0) {
+            load_message(settings, current_msg);
+        } else {
+            scroller_set_text("No messages     Press button to configure");
+        }
     }
 
     // Initialize BOOT button for config mode toggle
@@ -98,7 +122,7 @@ void app_main(void)
                 ESP_LOGI(TAG, "BOOT: entering config mode");
                 config_mode = true;
                 if (wifi_manager_radio_on()) {
-                    char msg[SCROLLER_MAX_TEXT_LEN + 32];
+                    char msg[64];
                     snprintf(msg, sizeof(msg), "Config Mode     %s",
                              wifi_manager_get_ip());
                     scroller_set_text(msg);
@@ -113,19 +137,32 @@ void app_main(void)
 
                 // Re-apply settings changed via web UI
                 settings = settings_get();
-                scroller_set_color(settings->color_r, settings->color_g, settings->color_b);
                 scroller_set_speed(settings->speed);
                 led_panel_set_brightness(settings->brightness);
 
-                char display_text[SCROLLER_MAX_TEXT_LEN + 64];
-                snprintf(display_text, sizeof(display_text),
-                         "%s     Press button to enter configuration", settings->text);
-                scroller_set_text(display_text);
+                // Restart message cycling from first enabled
+                current_msg = next_enabled_message(settings, MAX_MESSAGES - 1);
+                if (current_msg >= 0) {
+                    load_message(settings, current_msg);
+                } else {
+                    scroller_set_text("No messages     Press button to configure");
+                }
             }
         }
 
         bool cycle_done = false;
         int delay_ms = scroller_tick(&cycle_done);
+
+        // Advance to next enabled message when current one finishes scrolling
+        if (cycle_done && !config_mode) {
+            settings = settings_get();
+            int next = next_enabled_message(settings, current_msg);
+            if (next >= 0) {
+                current_msg = next;
+                load_message(settings, current_msg);
+            }
+        }
+
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
 }
