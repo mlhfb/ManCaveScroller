@@ -1,0 +1,256 @@
+#include "web_server.h"
+#include "web_page.h"
+#include "text_scroller.h"
+#include "settings.h"
+#include "wifi_manager.h"
+#include "led_panel.h"
+#include <string.h>
+#include <stdlib.h>
+#include "esp_http_server.h"
+#include "esp_log.h"
+#include "cJSON.h"
+
+static const char *TAG = "web_server";
+static httpd_handle_t server = NULL;
+
+// GET / — serve the web page
+static esp_err_t root_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, WEB_PAGE, strlen(WEB_PAGE));
+    return ESP_OK;
+}
+
+// GET /api/status — return current settings as JSON
+static esp_err_t status_handler(httpd_req_t *req)
+{
+    app_settings_t *s = settings_get();
+    const char *mode_str;
+    switch (wifi_manager_get_mode()) {
+    case WIFI_MGR_MODE_AP:             mode_str = "AP"; break;
+    case WIFI_MGR_MODE_STA:            mode_str = "STA"; break;
+    case WIFI_MGR_MODE_STA_CONNECTING: mode_str = "Connecting"; break;
+    default:                           mode_str = "None"; break;
+    }
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "text", s->text);
+    cJSON *color = cJSON_AddObjectToObject(root, "color");
+    cJSON_AddNumberToObject(color, "r", s->color_r);
+    cJSON_AddNumberToObject(color, "g", s->color_g);
+    cJSON_AddNumberToObject(color, "b", s->color_b);
+    cJSON_AddNumberToObject(root, "speed", s->speed);
+    cJSON_AddNumberToObject(root, "brightness", s->brightness);
+    cJSON_AddStringToObject(root, "wifi_mode", mode_str);
+    cJSON_AddStringToObject(root, "ip", wifi_manager_get_ip());
+    cJSON_AddStringToObject(root, "wifi_ssid", s->wifi_ssid);
+
+    char *json = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json, strlen(json));
+    cJSON_free(json);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+// Helper: read POST body and parse as JSON
+static cJSON *read_json_body(httpd_req_t *req)
+{
+    int total_len = req->content_len;
+    if (total_len <= 0 || total_len > 512) return NULL;
+
+    char buf[513];
+    int received = httpd_req_recv(req, buf, total_len);
+    if (received <= 0) return NULL;
+    buf[received] = '\0';
+
+    return cJSON_Parse(buf);
+}
+
+static void send_ok(httpd_req_t *req, const char *msg)
+{
+    char resp[128];
+    snprintf(resp, sizeof(resp), "{\"status\":\"%s\"}", msg);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, resp, strlen(resp));
+}
+
+static void send_err(httpd_req_t *req, const char *msg)
+{
+    char resp[128];
+    snprintf(resp, sizeof(resp), "{\"error\":\"%s\"}", msg);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_status(req, "400 Bad Request");
+    httpd_resp_send(req, resp, strlen(resp));
+}
+
+// POST /api/text — update scrolling text
+static esp_err_t text_handler(httpd_req_t *req)
+{
+    cJSON *json = read_json_body(req);
+    if (!json) { send_err(req, "Invalid JSON"); return ESP_OK; }
+
+    cJSON *text = cJSON_GetObjectItem(json, "text");
+    if (!cJSON_IsString(text)) {
+        cJSON_Delete(json);
+        send_err(req, "Missing 'text' field");
+        return ESP_OK;
+    }
+
+    app_settings_t *s = settings_get();
+    strncpy(s->text, text->valuestring, SETTINGS_MAX_TEXT_LEN);
+    s->text[SETTINGS_MAX_TEXT_LEN] = '\0';
+    scroller_set_text(s->text);
+    settings_save(s);
+
+    cJSON_Delete(json);
+    send_ok(req, "Text updated");
+    return ESP_OK;
+}
+
+// POST /api/color — update text color
+static esp_err_t color_handler(httpd_req_t *req)
+{
+    cJSON *json = read_json_body(req);
+    if (!json) { send_err(req, "Invalid JSON"); return ESP_OK; }
+
+    cJSON *r = cJSON_GetObjectItem(json, "r");
+    cJSON *g = cJSON_GetObjectItem(json, "g");
+    cJSON *b = cJSON_GetObjectItem(json, "b");
+    if (!cJSON_IsNumber(r) || !cJSON_IsNumber(g) || !cJSON_IsNumber(b)) {
+        cJSON_Delete(json);
+        send_err(req, "Missing r/g/b fields");
+        return ESP_OK;
+    }
+
+    app_settings_t *s = settings_get();
+    s->color_r = (uint8_t)r->valueint;
+    s->color_g = (uint8_t)g->valueint;
+    s->color_b = (uint8_t)b->valueint;
+    scroller_set_color(s->color_r, s->color_g, s->color_b);
+    settings_save(s);
+
+    cJSON_Delete(json);
+    send_ok(req, "Color updated");
+    return ESP_OK;
+}
+
+// POST /api/speed — update scroll speed
+static esp_err_t speed_handler(httpd_req_t *req)
+{
+    cJSON *json = read_json_body(req);
+    if (!json) { send_err(req, "Invalid JSON"); return ESP_OK; }
+
+    cJSON *speed = cJSON_GetObjectItem(json, "speed");
+    if (!cJSON_IsNumber(speed)) {
+        cJSON_Delete(json);
+        send_err(req, "Missing 'speed' field");
+        return ESP_OK;
+    }
+
+    app_settings_t *s = settings_get();
+    s->speed = (uint8_t)speed->valueint;
+    scroller_set_speed(s->speed);
+    settings_save(s);
+
+    cJSON_Delete(json);
+    send_ok(req, "Speed updated");
+    return ESP_OK;
+}
+
+// POST /api/brightness — update brightness
+static esp_err_t brightness_handler(httpd_req_t *req)
+{
+    cJSON *json = read_json_body(req);
+    if (!json) { send_err(req, "Invalid JSON"); return ESP_OK; }
+
+    cJSON *bright = cJSON_GetObjectItem(json, "brightness");
+    if (!cJSON_IsNumber(bright)) {
+        cJSON_Delete(json);
+        send_err(req, "Missing 'brightness' field");
+        return ESP_OK;
+    }
+
+    app_settings_t *s = settings_get();
+    s->brightness = (uint8_t)bright->valueint;
+    led_panel_set_brightness(s->brightness);
+    settings_save(s);
+
+    cJSON_Delete(json);
+    send_ok(req, "Brightness updated");
+    return ESP_OK;
+}
+
+// POST /api/wifi — set WiFi credentials and attempt connection
+static esp_err_t wifi_handler(httpd_req_t *req)
+{
+    cJSON *json = read_json_body(req);
+    if (!json) { send_err(req, "Invalid JSON"); return ESP_OK; }
+
+    cJSON *ssid = cJSON_GetObjectItem(json, "ssid");
+    cJSON *password = cJSON_GetObjectItem(json, "password");
+    if (!cJSON_IsString(ssid)) {
+        cJSON_Delete(json);
+        send_err(req, "Missing 'ssid' field");
+        return ESP_OK;
+    }
+
+    const char *pass_str = cJSON_IsString(password) ? password->valuestring : "";
+
+    // Send response before attempting connection (connection will change network)
+    send_ok(req, "Connecting to WiFi...");
+
+    wifi_manager_set_sta_credentials(ssid->valuestring, pass_str);
+
+    cJSON_Delete(json);
+    return ESP_OK;
+}
+
+// Captive portal: redirect all unknown URIs to /
+static esp_err_t captive_redirect_handler(httpd_req_t *req)
+{
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
+void web_server_start(void)
+{
+    if (server != NULL) return;
+
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.max_uri_handlers = 12;
+    config.uri_match_fn = httpd_uri_match_wildcard;
+
+    if (httpd_start(&server, &config) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start HTTP server");
+        return;
+    }
+
+    // Register URI handlers (order matters for wildcard matching)
+    httpd_uri_t uris[] = {
+        {.uri = "/",               .method = HTTP_GET,  .handler = root_handler},
+        {.uri = "/api/status",     .method = HTTP_GET,  .handler = status_handler},
+        {.uri = "/api/text",       .method = HTTP_POST, .handler = text_handler},
+        {.uri = "/api/color",      .method = HTTP_POST, .handler = color_handler},
+        {.uri = "/api/speed",      .method = HTTP_POST, .handler = speed_handler},
+        {.uri = "/api/brightness", .method = HTTP_POST, .handler = brightness_handler},
+        {.uri = "/api/wifi",       .method = HTTP_POST, .handler = wifi_handler},
+        {.uri = "/*",              .method = HTTP_GET,  .handler = captive_redirect_handler},
+    };
+
+    for (int i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) {
+        httpd_register_uri_handler(server, &uris[i]);
+    }
+
+    ESP_LOGI(TAG, "Web server started");
+}
+
+void web_server_stop(void)
+{
+    if (server != NULL) {
+        httpd_stop(server);
+        server = NULL;
+    }
+}
