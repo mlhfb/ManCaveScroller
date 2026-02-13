@@ -60,22 +60,11 @@ void app_main(void)
         int delay_ms = scroller_tick(&cycle_done);
 
         if (cycle_done && wifi_manager_get_mode() == WIFI_MGR_MODE_STA) {
-            // WiFi service window between message cycles
-            wifi_manager_radio_on();  // reconnect (up to 5s) + serve requests (2s)
-
-            // Re-apply any settings changed via web UI
-            settings = settings_get();
-            scroller_set_color(settings->color_r, settings->color_g, settings->color_b);
-            scroller_set_speed(settings->speed);
-            led_panel_set_brightness(settings->brightness);
-
-            // Compose display text with latest message + IP
+            // Re-compose display text (picks up any future setting changes)
             char display_text[SCROLLER_MAX_TEXT_LEN + 32];
             snprintf(display_text, sizeof(display_text), "%s     connect at %s",
                      settings->text, wifi_manager_get_ip());
             scroller_set_text(display_text);
-
-            wifi_manager_radio_off();
         }
 
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
