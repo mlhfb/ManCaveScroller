@@ -47,7 +47,13 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
             break;
         case WIFI_EVENT_STA_DISCONNECTED:
             if (radio_cycling) {
-                // During radio cycling, don't retry — just ignore
+                // During radio cycling, allow one retry then give up
+                if (sta_retry_count < 1) {
+                    sta_retry_count++;
+                    esp_wifi_connect();
+                } else {
+                    xEventGroupSetBits(wifi_event_group, WIFI_FAIL_BIT);
+                }
                 break;
             }
             if (sta_retry_count < STA_MAX_RETRY) {
@@ -148,8 +154,8 @@ static void start_sta_mode(const char *ssid, const char *password)
                                            pdMS_TO_TICKS(STA_CONNECT_TIMEOUT_MS));
 
     if (bits & WIFI_CONNECTED_BIT) {
-        ESP_LOGI(TAG, "STA connected to %s", ssid);
-        esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+        ESP_LOGI(TAG, "STA connected to %s — suspending WiFi for display", ssid);
+        esp_wifi_stop();
     } else {
         ESP_LOGW(TAG, "STA connection to %s failed, starting AP mode", ssid);
         start_ap_mode();
@@ -291,10 +297,20 @@ void wifi_manager_radio_on(void)
 {
     if (current_mode != WIFI_MGR_MODE_STA) return;
     radio_cycling = true;
+    sta_retry_count = 0;
     xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
     esp_wifi_start();
-    // Block for 2 seconds — web server handles requests during this time
-    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    // Wait up to 5 seconds for reconnection
+    EventBits_t bits = xEventGroupWaitBits(wifi_event_group,
+                                           WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+                                           pdTRUE, pdFALSE,
+                                           pdMS_TO_TICKS(5000));
+    if (bits & WIFI_CONNECTED_BIT) {
+        // Connected — serve web requests for 2 seconds
+        ESP_LOGI(TAG, "Radio on — serving requests for 2s");
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
 }
 
 void wifi_manager_radio_off(void)

@@ -60,7 +60,10 @@ void app_main(void)
         int delay_ms = scroller_tick(&cycle_done);
 
         if (cycle_done && wifi_manager_get_mode() == WIFI_MGR_MODE_STA) {
-            // Re-apply any settings changed via web UI since last cycle
+            // WiFi service window between message cycles
+            wifi_manager_radio_on();  // reconnect (up to 5s) + serve requests (2s)
+
+            // Re-apply any settings changed via web UI
             settings = settings_get();
             scroller_set_color(settings->color_r, settings->color_g, settings->color_b);
             scroller_set_speed(settings->speed);
@@ -71,6 +74,8 @@ void app_main(void)
             snprintf(display_text, sizeof(display_text), "%s     connect at %s",
                      settings->text, wifi_manager_get_ip());
             scroller_set_text(display_text);
+
+            wifi_manager_radio_off();
         }
 
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
