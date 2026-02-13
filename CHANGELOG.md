@@ -14,6 +14,12 @@
   - Enters config mode: WiFi reconnects, display shows IP address for web UI access
   - Exits config mode: WiFi turns off, any settings changed via web UI are applied
   - 300ms debounce via GPIO interrupt on falling edge
+- **Advanced settings page** — accessible from the main web UI
+  - **Panel size selector** — configure for 1–4 chained panels (8x32, 8x64, 8x96, 8x128)
+  - **Factory Default** button — erases NVS and restarts the device (with confirmation dialog)
+  - New `/api/appearance` endpoint for combined speed + brightness save
+  - New `/api/advanced` endpoint for panel size configuration
+  - New `/api/factory-reset` endpoint for full device reset
 
 ### Changed
 - WiFi is now fully off during normal scrolling in STA mode (eliminates display glitches caused by WiFi ISRs interfering with RMT timing)
@@ -21,9 +27,12 @@
 - `wifi_manager_radio_on()` no longer auto-closes after 2 seconds — stays connected until `radio_off()` is called
 - Settings struct changed from single text+color to `messages[5]` array with per-message color and enable flag
 - Web UI main view shows a preview of enabled messages with their colors
-- `/api/status` now returns a `messages` array instead of single `text` and `color` fields
+- `/api/status` now returns a `messages` array instead of single `text` and `color` fields, plus `wifi_password` and `panel_cols`
 - Legacy `/api/text` and `/api/color` endpoints still work (target message slot 0)
 - POST body max size increased from 512 to 4096 bytes to accommodate multi-message payloads
+- Appearance section now uses a single "Save" button for both speed and brightness
+- LED panel driver supports runtime column count (32–128) for multi-panel configurations
+- WiFi password auto-populates on page load from saved settings
 
 ### Fixed
 - Display glitches (random colored pixels) caused by WiFi radio interrupts preempting the RMT encoder — resolved by keeping WiFi off during display operation (fixes #1)

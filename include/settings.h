@@ -22,6 +22,7 @@ typedef struct {
     message_t messages[MAX_MESSAGES];
     uint8_t speed;       // 1-10
     uint8_t brightness;  // 0-255
+    uint8_t panel_cols;  // 32, 64, 96, or 128
     char wifi_ssid[SETTINGS_MAX_SSID_LEN + 1];
     char wifi_password[SETTINGS_MAX_PASS_LEN + 1];
 } app_settings_t;

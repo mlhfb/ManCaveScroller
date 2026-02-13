@@ -25,9 +25,9 @@ static void render_frame(void)
     }
 
     int char_width = FONT_WIDTH + 1; // 5px glyph + 1px gap
-    int total_width = text_len * char_width + PANEL_COLS;
+    int total_width = text_len * char_width + led_panel_get_cols();
 
-    for (int col = 0; col < PANEL_COLS; col++) {
+    for (int col = 0; col < led_panel_get_cols(); col++) {
         int virtual_col = (scroll_x + col) % total_width;
         int char_index = virtual_col / char_width;
         int col_in_char = virtual_col % char_width;
@@ -65,7 +65,7 @@ int scroller_tick(bool *cycle_complete)
     bool done = false;
     if (text_len > 0) {
         int char_width = FONT_WIDTH + 1;
-        int total_width = text_len * char_width + PANEL_COLS;
+        int total_width = text_len * char_width + led_panel_get_cols();
         scroll_x = (scroll_x + 1) % total_width;
         // Cycle completes when scroll_x returns to initial position (blank gap)
         int initial_pos = text_len * char_width;

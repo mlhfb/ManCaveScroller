@@ -7,9 +7,10 @@
 
 static const char *TAG = "led_panel";
 
-static pixel_rgb_t framebuffer[PANEL_ROWS][PANEL_COLS];
-static uint8_t led_buffer[PANEL_NUM_LEDS * 3]; // GRB byte order
+static pixel_rgb_t framebuffer[PANEL_ROWS][PANEL_MAX_COLS];
+static uint8_t led_buffer[PANEL_MAX_LEDS * 3]; // GRB byte order
 static uint8_t global_brightness = 32;
+static uint8_t panel_cols = 32; // runtime panel width
 
 static rmt_channel_handle_t rmt_channel = NULL;
 static rmt_encoder_handle_t rmt_encoder = NULL;
@@ -80,7 +81,7 @@ esp_err_t led_panel_init(void)
 
     led_panel_clear();
     ESP_LOGI(TAG, "LED panel initialized: %dx%d (%d LEDs) on GPIO %d",
-             PANEL_COLS, PANEL_ROWS, PANEL_NUM_LEDS, LED_STRIP_GPIO);
+             panel_cols, PANEL_ROWS, panel_cols * PANEL_ROWS, LED_STRIP_GPIO);
     return ESP_OK;
 }
 
@@ -91,7 +92,7 @@ void led_panel_clear(void)
 
 void led_panel_set_pixel(int row, int col, uint8_t r, uint8_t g, uint8_t b)
 {
-    if (row < 0 || row >= PANEL_ROWS || col < 0 || col >= PANEL_COLS) {
+    if (row < 0 || row >= PANEL_ROWS || col < 0 || col >= panel_cols) {
         return;
     }
     framebuffer[row][col].r = r;
@@ -102,7 +103,7 @@ void led_panel_set_pixel(int row, int col, uint8_t r, uint8_t g, uint8_t b)
 pixel_rgb_t led_panel_get_pixel(int row, int col)
 {
     pixel_rgb_t black = {0, 0, 0};
-    if (row < 0 || row >= PANEL_ROWS || col < 0 || col >= PANEL_COLS) {
+    if (row < 0 || row >= PANEL_ROWS || col < 0 || col >= panel_cols) {
         return black;
     }
     return framebuffer[row][col];
@@ -112,7 +113,7 @@ esp_err_t led_panel_refresh(void)
 {
     // Convert framebuffer to GRB byte buffer with brightness scaling and serpentine mapping
     for (int row = 0; row < PANEL_ROWS; row++) {
-        for (int col = 0; col < PANEL_COLS; col++) {
+        for (int col = 0; col < panel_cols; col++) {
             int idx = pixel_index(row, col) * 3;
             pixel_rgb_t *px = &framebuffer[row][col];
             // WS2812B expects GRB order
@@ -127,7 +128,8 @@ esp_err_t led_panel_refresh(void)
         .loop_count = 0,
     };
 
-    esp_err_t err = rmt_transmit(rmt_channel, rmt_encoder, led_buffer, sizeof(led_buffer), &tx_config);
+    size_t active_size = panel_cols * PANEL_ROWS * 3;
+    esp_err_t err = rmt_transmit(rmt_channel, rmt_encoder, led_buffer, active_size, &tx_config);
     if (err != ESP_OK) return err;
 
     rmt_tx_wait_all_done(rmt_channel, pdMS_TO_TICKS(100));
@@ -137,4 +139,16 @@ esp_err_t led_panel_refresh(void)
 void led_panel_set_brightness(uint8_t brightness)
 {
     global_brightness = brightness;
+}
+
+void led_panel_set_cols(uint8_t cols)
+{
+    if (cols < 32) cols = 32;
+    if (cols > PANEL_MAX_COLS) cols = PANEL_MAX_COLS;
+    panel_cols = cols;
+}
+
+uint8_t led_panel_get_cols(void)
+{
+    return panel_cols;
 }

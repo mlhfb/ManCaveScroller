@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "nvs_flash.h"
+#include "esp_system.h"
 #include "cJSON.h"
 
 static const char *TAG = "web_server";
@@ -50,7 +52,9 @@ static esp_err_t status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "brightness", s->brightness);
     cJSON_AddStringToObject(root, "wifi_mode", mode_str);
     cJSON_AddStringToObject(root, "ip", wifi_manager_get_ip());
+    cJSON_AddNumberToObject(root, "panel_cols", s->panel_cols);
     cJSON_AddStringToObject(root, "wifi_ssid", s->wifi_ssid);
+    cJSON_AddStringToObject(root, "wifi_password", s->wifi_password);
 
     char *json = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");
@@ -262,6 +266,65 @@ static esp_err_t wifi_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+// POST /api/appearance — update speed and brightness together
+static esp_err_t appearance_handler(httpd_req_t *req)
+{
+    cJSON *json = read_json_body(req);
+    if (!json) { send_err(req, "Invalid JSON"); return ESP_OK; }
+
+    app_settings_t *s = settings_get();
+
+    cJSON *speed = cJSON_GetObjectItem(json, "speed");
+    if (cJSON_IsNumber(speed)) {
+        s->speed = (uint8_t)speed->valueint;
+        scroller_set_speed(s->speed);
+    }
+
+    cJSON *bright = cJSON_GetObjectItem(json, "brightness");
+    if (cJSON_IsNumber(bright)) {
+        s->brightness = (uint8_t)bright->valueint;
+        led_panel_set_brightness(s->brightness);
+    }
+
+    settings_save(s);
+    cJSON_Delete(json);
+    send_ok(req, "Appearance updated");
+    return ESP_OK;
+}
+
+// POST /api/advanced — update advanced settings (panel_cols)
+static esp_err_t advanced_handler(httpd_req_t *req)
+{
+    cJSON *json = read_json_body(req);
+    if (!json) { send_err(req, "Invalid JSON"); return ESP_OK; }
+
+    app_settings_t *s = settings_get();
+
+    cJSON *cols = cJSON_GetObjectItem(json, "panel_cols");
+    if (cJSON_IsNumber(cols)) {
+        uint8_t val = (uint8_t)cols->valueint;
+        if (val == 32 || val == 64 || val == 96 || val == 128) {
+            s->panel_cols = val;
+            led_panel_set_cols(val);
+        }
+    }
+
+    settings_save(s);
+    cJSON_Delete(json);
+    send_ok(req, "Advanced settings updated");
+    return ESP_OK;
+}
+
+// POST /api/factory-reset — erase NVS and restart
+static esp_err_t factory_reset_handler(httpd_req_t *req)
+{
+    send_ok(req, "Factory reset — restarting...");
+    vTaskDelay(pdMS_TO_TICKS(500));
+    nvs_flash_erase();
+    esp_restart();
+    return ESP_OK;  // unreachable
+}
+
 // Captive portal: redirect all unknown URIs to /
 static esp_err_t captive_redirect_handler(httpd_req_t *req)
 {
@@ -276,7 +339,7 @@ void web_server_start(void)
     if (server != NULL) return;
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 12;
+    config.max_uri_handlers = 16;
     config.uri_match_fn = httpd_uri_match_wildcard;
 
     if (httpd_start(&server, &config) != ESP_OK) {
@@ -293,8 +356,11 @@ void web_server_start(void)
         {.uri = "/api/color",      .method = HTTP_POST, .handler = color_handler},
         {.uri = "/api/speed",      .method = HTTP_POST, .handler = speed_handler},
         {.uri = "/api/brightness", .method = HTTP_POST, .handler = brightness_handler},
-        {.uri = "/api/wifi",       .method = HTTP_POST, .handler = wifi_handler},
-        {.uri = "/*",              .method = HTTP_GET,  .handler = captive_redirect_handler},
+        {.uri = "/api/wifi",          .method = HTTP_POST, .handler = wifi_handler},
+        {.uri = "/api/appearance",    .method = HTTP_POST, .handler = appearance_handler},
+        {.uri = "/api/advanced",      .method = HTTP_POST, .handler = advanced_handler},
+        {.uri = "/api/factory-reset", .method = HTTP_POST, .handler = factory_reset_handler},
+        {.uri = "/*",                 .method = HTTP_GET,  .handler = captive_redirect_handler},
     };
 
     for (int i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) {

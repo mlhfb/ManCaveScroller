@@ -6,13 +6,14 @@ WiFi-controlled scrolling LED display built on ESP32. Set your message, color, s
 
 ## Features
 
-- **Scrolling text** on a WS2812B 8x32 LED panel (256 pixels)
+- **Scrolling text** on WS2812B LED panels — supports 1–4 chained 8x32 panels (up to 8x128)
 - **Multiple messages** — up to 5 custom messages, each with its own color, cycling automatically
-- **Web UI** for real-time control — messages, color, speed, brightness
+- **Web UI** for real-time control — messages, color, speed, brightness, panel size
 - **AP + STA WiFi** — creates its own hotspot for setup, then connects to your network
 - **Captive portal** — auto-redirects to the config page when connected to the AP
 - **Persistent settings** — saved to NVS flash, survives reboots
 - **Config mode via BOOT button** — press to enable WiFi and access the web UI, press again to resume glitch-free scrolling
+- **Advanced settings** — configurable panel size, factory reset
 - **No external dependencies** — custom RMT driver, embedded web page, no SPIFFS
 
 ## Hardware
@@ -20,7 +21,7 @@ WiFi-controlled scrolling LED display built on ESP32. Set your message, color, s
 | Component | Details |
 |-----------|---------|
 | **Board** | ESP32 DoIt DevKit V1 |
-| **Display** | WS2812B 8x32 LED panel (serpentine/zigzag layout) |
+| **Display** | WS2812B 8x32 LED panel(s), 1–4 chained (serpentine/zigzag layout) |
 | **Data pin** | GPIO 5 (configurable in `platformio.ini`) |
 | **Power** | 5V, adequate supply for 256 LEDs (default brightness is conservative) |
 
@@ -60,7 +61,10 @@ pio device monitor -b 115200
 | `POST` | `/api/color` | `{"r":255,"g":0,"b":0}` | Set message 1 color (legacy) |
 | `POST` | `/api/speed` | `{"speed":5}` | Set scroll speed (1-10) |
 | `POST` | `/api/brightness` | `{"brightness":32}` | Set brightness (1-255) |
+| `POST` | `/api/appearance` | `{"speed":5,"brightness":32}` | Set speed + brightness together |
 | `POST` | `/api/wifi` | `{"ssid":"...","password":"..."}` | Connect to WiFi |
+| `POST` | `/api/advanced` | `{"panel_cols":64}` | Set panel size (32/64/96/128) |
+| `POST` | `/api/factory-reset` | — | Erase NVS and restart device |
 
 ## Project Structure
 

@@ -20,6 +20,7 @@ static const app_settings_t default_settings = {
     },
     .speed = 5,
     .brightness = 32,
+    .panel_cols = 32,
     .wifi_ssid = "",
     .wifi_password = "",
 };
@@ -80,6 +81,7 @@ static void load_from_nvs(void)
 
     nvs_get_u8(handle, "speed", &current_settings.speed);
     nvs_get_u8(handle, "bright", &current_settings.brightness);
+    nvs_get_u8(handle, "panel_cols", &current_settings.panel_cols);
 
     len = sizeof(current_settings.wifi_ssid);
     nvs_get_str(handle, "wifi_ssid", current_settings.wifi_ssid, &len);
@@ -129,6 +131,7 @@ esp_err_t settings_save(const app_settings_t *settings)
 
     nvs_set_u8(handle, "speed", current_settings.speed);
     nvs_set_u8(handle, "bright", current_settings.brightness);
+    nvs_set_u8(handle, "panel_cols", current_settings.panel_cols);
     nvs_set_str(handle, "wifi_ssid", current_settings.wifi_ssid);
     nvs_set_str(handle, "wifi_pass", current_settings.wifi_password);
 

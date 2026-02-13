@@ -84,6 +84,7 @@ void app_main(void)
         return;
     }
     led_panel_set_brightness(settings->brightness);
+    led_panel_set_cols(settings->panel_cols);
 
     // Initialize scroller state
     scroller_init();
@@ -139,6 +140,7 @@ void app_main(void)
                 settings = settings_get();
                 scroller_set_speed(settings->speed);
                 led_panel_set_brightness(settings->brightness);
+                led_panel_set_cols(settings->panel_cols);
 
                 // Restart message cycling from first enabled
                 current_msg = next_enabled_message(settings, MAX_MESSAGES - 1);
