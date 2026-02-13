@@ -11,6 +11,7 @@ WiFi-controlled scrolling LED display built on ESP32. Set your message, color, s
 - **AP + STA WiFi** — creates its own hotspot for setup, then connects to your network
 - **Captive portal** — auto-redirects to the config page when connected to the AP
 - **Persistent settings** — saved to NVS flash, survives reboots
+- **Config mode via BOOT button** — press to enable WiFi and access the web UI, press again to resume glitch-free scrolling
 - **No external dependencies** — custom RMT driver, embedded web page, no SPIFFS
 
 ## Hardware
@@ -105,7 +106,9 @@ Default brightness is 32/255 — conservative to keep current draw manageable. 2
 2. If found, attempts STA connection (15s timeout, 5 retries)
 3. If none stored or connection fails, starts AP mode as **"ManCave"** (open)
 4. AP mode includes a captive portal DNS server that redirects all domains to `192.168.4.1`
-5. In STA mode, WiFi power save (`MIN_MODEM`) reduces radio activity
+5. In STA mode, WiFi is turned **off** after connecting to eliminate display glitches
+6. Press the **BOOT button** to enter config mode — WiFi reconnects, web UI becomes accessible
+7. Press **BOOT again** to exit config mode — WiFi off, settings applied, scrolling resumes
 
 ## License
 

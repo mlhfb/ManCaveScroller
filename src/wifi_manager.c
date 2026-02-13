@@ -293,9 +293,9 @@ void wifi_manager_set_sta_credentials(const char *ssid, const char *password)
     start_sta_mode(ssid, password);
 }
 
-void wifi_manager_radio_on(void)
+bool wifi_manager_radio_on(void)
 {
-    if (current_mode != WIFI_MGR_MODE_STA) return;
+    if (current_mode != WIFI_MGR_MODE_STA) return false;
     radio_cycling = true;
     sta_retry_count = 0;
     xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
@@ -306,11 +306,16 @@ void wifi_manager_radio_on(void)
                                            WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
                                            pdTRUE, pdFALSE,
                                            pdMS_TO_TICKS(5000));
+    radio_cycling = false;
+
     if (bits & WIFI_CONNECTED_BIT) {
-        // Connected — serve web requests for 2 seconds
-        ESP_LOGI(TAG, "Radio on — serving requests for 2s");
-        vTaskDelay(pdMS_TO_TICKS(2000));
+        ESP_LOGI(TAG, "Radio on — WiFi connected");
+        return true;
     }
+
+    ESP_LOGW(TAG, "Radio on — connection failed");
+    esp_wifi_stop();
+    return false;
 }
 
 void wifi_manager_radio_off(void)

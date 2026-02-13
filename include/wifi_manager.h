@@ -2,6 +2,7 @@
 #define WIFI_MANAGER_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 typedef enum {
     WIFI_MGR_MODE_NONE,
@@ -16,7 +17,7 @@ wifi_mgr_mode_t wifi_manager_get_mode(void);
 const char *wifi_manager_get_ip(void);
 const char *wifi_manager_get_ssid(void);
 void wifi_manager_set_sta_credentials(const char *ssid, const char *password);
-void wifi_manager_radio_on(void);   // re-enable WiFi radio (STA mode only)
+bool wifi_manager_radio_on(void);   // re-enable WiFi radio (STA mode only), returns true if connected
 void wifi_manager_radio_off(void);  // disable WiFi radio
 
 #endif
