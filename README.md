@@ -13,7 +13,7 @@ WiFi-controlled scrolling LED display built on ESP32. Set your message, color, s
 - **Captive portal** — auto-redirects to the config page when connected to the AP
 - **Persistent settings** — saved to NVS flash, survives reboots
 - **Config mode via BOOT button** — press to enable WiFi and access the web UI, press again to resume glitch-free scrolling
-- **RSS news feed** — scroll headlines from any RSS feed (e.g., NPR), with automatic re-fetch and custom message interleaving
+- **RSS news feed** � deterministic source-by-source playback with automatic retry/backoff and fallback to custom messages when feeds are unavailable
 - **Advanced settings** — configurable panel size, RSS feed, factory reset
 - **No external dependencies** — custom RMT driver, embedded web page, no SPIFFS
 
@@ -56,7 +56,7 @@ pio device monitor -b 115200
 | Method | Endpoint | Body | Purpose |
 |--------|----------|------|---------|
 | `GET` | `/` | — | Web UI |
-| `GET` | `/api/status` | — | Current settings, messages, WiFi status |
+| `GET` | `/api/status` | � | Current settings, messages, WiFi status, and RSS source metadata |
 | `POST` | `/api/messages` | `{"messages":[...]}` | Update all 5 messages (text, color, enabled) |
 | `POST` | `/api/text` | `{"text":"Hello!"}` | Set message 1 text (legacy) |
 | `POST` | `/api/color` | `{"r":255,"g":0,"b":0}` | Set message 1 color (legacy) |
@@ -72,10 +72,10 @@ pio device monitor -b 115200
 
 ```
 src/
-  main.c            Main loop drives the display directly (no FreeRTOS task)
+  main.c            Main loop drives display + RSS source scheduler (single active feed in memory)
   led_panel.c       Custom RMT driver for WS2812B, framebuffer, serpentine mapping
   font.c            5x7 bitmap font, 95 ASCII glyphs, column-major encoding
-  text_scroller.c   Horizontal scrolling engine, mutex-protected settings
+  text_scroller.c   Fixed-frame scrolling engine with fractional speed steps
   settings.c        NVS persistence (namespace "mancave")
   wifi_manager.c    AP/STA dual mode, captive portal DNS
   rss_fetcher.c    HTTPS RSS feed fetcher, XML parser, HTML entity decoder
@@ -95,10 +95,11 @@ include/
 
 The display is driven directly from the `app_main()` loop — inspired by how vintage 1970s/80s home computers used the CPU to drive the display and ran other code during blanking periods.
 
-- **Main loop** calls `scroller_tick()` each frame, which renders to the framebuffer and returns the delay until the next frame
+- **Main loop** calls `scroller_tick()` each frame; scroller uses fixed-frame timing for smoother motion
 - **WiFi and web server** run as ESP-IDF background tasks
 - **RMT peripheral** generates precise WS2812B timing via a bytes encoder (10MHz, no external library)
 - **Shared state** (text, color, speed) is protected by a FreeRTOS mutex
+- **RSS runtime** uses a deterministic single-source scheduler with retry backoff for automatic recovery
 
 ## Configuration
 
@@ -129,7 +130,7 @@ Use this quick map before opening a PR:
 - New persistent setting: add field in `include/settings.h`, defaults + NVS load/save keys in `src/settings.c`, and include it in `/api/status` in `src/web_server.c`.
 - Scrolling behavior/timing: `src/text_scroller.c` for rendering/speed behavior, `src/main.c` for cycle transitions/content switching.
 - Message rotation rules: `src/main.c` (`next_enabled_message`, cycle logic) and `include/settings.h` for message schema/count changes.
-- RSS behavior: `src/rss_fetcher.c` (fetch/parse/sanitize), `src/main.c` (`fetch_rss_feed`, `rss_advance`), `src/web_server.c` (`/api/rss`).
+- RSS behavior: `src/rss_fetcher.c` (fetch/parse/sanitize), `src/main.c` (`rss_activate_next_source`, `rss_load_current_item`, retry scheduler), `src/web_server.c` (`/api/rss`).
 - WiFi/config mode behavior: `src/wifi_manager.c` (AP/STA/radio lifecycle + captive DNS), `src/main.c` (BOOT button config mode flow).
 - LED mapping/timing: `src/led_panel.c` (RMT timing, serpentine mapping, panel cols), `include/led_panel.h` (limits/default GPIO macro).
 - Font/glyph changes: `src/font.c`, `include/font.h`.
@@ -145,4 +146,7 @@ Minimum validation before merge:
 ## License
 
 MIT
+
+
+
 
