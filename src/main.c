@@ -10,6 +10,7 @@
 #include "text_scroller.h"
 #include "wifi_manager.h"
 #include "web_server.h"
+#include "rss_fetcher.h"
 
 static const char *TAG = "main";
 
@@ -53,13 +54,136 @@ static int next_enabled_message(const app_settings_t *s, int current)
     return -1;
 }
 
-// Load a message into the scroller by index
+// Load a custom message into the scroller by index
 static void load_message(const app_settings_t *s, int idx)
 {
     scroller_set_text(s->messages[idx].text);
     scroller_set_color(s->messages[idx].color_r,
                        s->messages[idx].color_g,
                        s->messages[idx].color_b);
+}
+
+// ── RSS color rotation ──
+
+static const uint8_t rss_colors[][3] = {
+    {255, 255, 255},  // white
+    {255, 255, 0},    // yellow
+    {0,   255, 0},    // green
+    {255, 0,   0},    // red
+    {0,   0,   255},  // blue
+    {0,   255, 255},  // cyan
+    {148, 0,   211},  // violet
+};
+#define RSS_NUM_COLORS 7
+
+// ── RSS state ──
+
+static int rss_item_idx = 0;
+static bool rss_showing_title = true;
+static int rss_items_since_custom = 0;
+static bool rss_pending_custom = false;
+static int rss_color_idx = 0;
+
+// Fetch RSS feed: display status, turn WiFi on, fetch, turn WiFi off.
+// Returns true if items were fetched successfully.
+static bool fetch_rss_feed(const app_settings_t *s)
+{
+    ESP_LOGI(TAG, "Fetching RSS feed...");
+    scroller_set_text("Updating news...");
+    scroller_set_color(255, 255, 255);
+
+    // Render one frame so "Updating news..." is visible while WiFi is active
+    scroller_tick(NULL);
+
+    bool connected = wifi_manager_radio_on();
+    if (!connected) {
+        ESP_LOGW(TAG, "WiFi connect failed for RSS fetch");
+        wifi_manager_radio_off();
+        return false;
+    }
+
+    esp_err_t err = rss_fetch(s->rss_url);
+    wifi_manager_radio_off();
+
+    if (err != ESP_OK || rss_get_count() == 0) {
+        ESP_LOGW(TAG, "RSS fetch failed or empty");
+        return false;
+    }
+
+    ESP_LOGI(TAG, "RSS: %d items ready", rss_get_count());
+    return true;
+}
+
+// Load the next RSS scroll item (title or description) into the scroller.
+// Handles interleaving with custom messages every 4 RSS items.
+// Returns true if an item was loaded, false if RSS is exhausted and needs re-fetch.
+static bool rss_advance(const app_settings_t *s, int *custom_msg_idx)
+{
+    // Custom message insertion point
+    if (rss_pending_custom) {
+        int next = next_enabled_message(s, *custom_msg_idx);
+        if (next >= 0) {
+            *custom_msg_idx = next;
+            load_message(s, next);
+        }
+        rss_pending_custom = false;
+        return true;
+    }
+
+    // Check if we've exhausted all RSS items
+    if (rss_item_idx >= rss_get_count()) {
+        return false;  // signal re-fetch needed
+    }
+
+    const rss_item_t *item = rss_get_item(rss_item_idx);
+    if (!item) return false;
+
+    const uint8_t *color = rss_colors[rss_color_idx % RSS_NUM_COLORS];
+
+    if (rss_showing_title) {
+        // Show title
+        if (item->title[0] != '\0') {
+            scroller_set_text(item->title);
+        } else {
+            scroller_set_text("(no title)");
+        }
+        scroller_set_color(color[0], color[1], color[2]);
+        rss_showing_title = false;
+    } else {
+        // Show description
+        if (item->description[0] != '\0') {
+            scroller_set_text(item->description);
+        } else {
+            scroller_set_text("(no description)");
+        }
+        scroller_set_color(color[0], color[1], color[2]);
+
+        // Advance to next item
+        rss_item_idx++;
+        rss_color_idx = (rss_color_idx + 1) % RSS_NUM_COLORS;
+        rss_items_since_custom++;
+        rss_showing_title = true;
+
+        // Check if it's time for a custom message
+        if (rss_items_since_custom >= 4) {
+            if (next_enabled_message(s, *custom_msg_idx) >= 0) {
+                rss_pending_custom = true;
+            }
+            rss_items_since_custom = 0;
+        }
+    }
+    return true;
+}
+
+// Reset RSS playback state for a fresh feed cycle
+static void rss_reset_playback(void)
+{
+    rss_item_idx = 0;
+    rss_color_idx = 0;
+    rss_showing_title = true;
+    rss_items_since_custom = 0;
+    rss_pending_custom = false;
+    // Note: custom_msg_idx is NOT reset — it persists across feed cycles
 }
 
 void app_main(void)
@@ -95,14 +219,31 @@ void app_main(void)
     wifi_manager_start();
     web_server_start();
 
-    // Load first enabled message (in AP mode, wifi_manager may have set text already)
+    // RSS active = STA mode + RSS enabled + URL configured
+    bool rss_active = false;
+    int custom_msg_idx = -1;  // persists across RSS feed cycles
+
+    // Initial content setup
     int current_msg = -1;
     if (wifi_manager_get_mode() == WIFI_MGR_MODE_STA) {
-        current_msg = next_enabled_message(settings, MAX_MESSAGES - 1);
-        if (current_msg >= 0) {
-            load_message(settings, current_msg);
-        } else {
-            scroller_set_text("No messages     Press button to configure");
+        // Try initial RSS fetch if enabled
+        if (settings->rss_enabled && strlen(settings->rss_url) > 0) {
+            if (fetch_rss_feed(settings)) {
+                rss_active = true;
+                rss_reset_playback();
+                // Load the first RSS item
+                rss_advance(settings, &custom_msg_idx);
+            }
+        }
+
+        if (!rss_active) {
+            // Fall back to custom messages
+            current_msg = next_enabled_message(settings, MAX_MESSAGES - 1);
+            if (current_msg >= 0) {
+                load_message(settings, current_msg);
+            } else {
+                scroller_set_text("No messages     Press button to configure");
+            }
         }
     }
 
@@ -123,6 +264,7 @@ void app_main(void)
                 ESP_LOGI(TAG, "BOOT: entering config mode");
                 config_mode = true;
                 if (wifi_manager_radio_on()) {
+                    web_server_start();
                     char msg[64];
                     snprintf(msg, sizeof(msg), "Config Mode     %s",
                              wifi_manager_get_ip());
@@ -134,6 +276,7 @@ void app_main(void)
                 // Exit config mode — turn WiFi off, apply any changes
                 ESP_LOGI(TAG, "BOOT: exiting config mode");
                 config_mode = false;
+                web_server_stop();
                 wifi_manager_radio_off();
 
                 // Re-apply settings changed via web UI
@@ -142,12 +285,24 @@ void app_main(void)
                 led_panel_set_brightness(settings->brightness);
                 led_panel_set_cols(settings->panel_cols);
 
-                // Restart message cycling from first enabled
-                current_msg = next_enabled_message(settings, MAX_MESSAGES - 1);
-                if (current_msg >= 0) {
-                    load_message(settings, current_msg);
-                } else {
-                    scroller_set_text("No messages     Press button to configure");
+                // Check if RSS should be (re-)activated
+                rss_active = false;
+                if (settings->rss_enabled && strlen(settings->rss_url) > 0) {
+                    if (fetch_rss_feed(settings)) {
+                        rss_active = true;
+                        rss_reset_playback();
+                        rss_advance(settings, &custom_msg_idx);
+                    }
+                }
+
+                if (!rss_active) {
+                    // Fall back to custom messages
+                    current_msg = next_enabled_message(settings, MAX_MESSAGES - 1);
+                    if (current_msg >= 0) {
+                        load_message(settings, current_msg);
+                    } else {
+                        scroller_set_text("No messages     Press button to configure");
+                    }
                 }
             }
         }
@@ -155,13 +310,35 @@ void app_main(void)
         bool cycle_done = false;
         int delay_ms = scroller_tick(&cycle_done);
 
-        // Advance to next enabled message when current one finishes scrolling
+        // Advance content when current scroll finishes
         if (cycle_done && !config_mode) {
             settings = settings_get();
-            int next = next_enabled_message(settings, current_msg);
-            if (next >= 0) {
-                current_msg = next;
-                load_message(settings, current_msg);
+
+            if (rss_active) {
+                // RSS mode: advance through RSS items + custom interleaving
+                if (!rss_advance(settings, &custom_msg_idx)) {
+                    // All RSS items shown — re-fetch
+                    if (fetch_rss_feed(settings)) {
+                        rss_reset_playback();
+                        rss_advance(settings, &custom_msg_idx);
+                    } else {
+                        // Fetch failed — fall back to custom only
+                        rss_active = false;
+                        current_msg = next_enabled_message(settings, MAX_MESSAGES - 1);
+                        if (current_msg >= 0) {
+                            load_message(settings, current_msg);
+                        } else {
+                            scroller_set_text("RSS unavailable     Press button to configure");
+                        }
+                    }
+                }
+            } else {
+                // Custom-only mode: cycle through enabled messages
+                int next = next_enabled_message(settings, current_msg);
+                if (next >= 0) {
+                    current_msg = next;
+                    load_message(settings, current_msg);
+                }
             }
         }
 

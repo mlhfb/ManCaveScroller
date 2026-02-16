@@ -1,1 +1,239 @@
-<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>ManCave Scroller</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:20px;background:#1a1a2e;color:#e0e0e0}h1{text-align:center;color:#e94560;margin-bottom:20px;font-size:1.6em}.card{background:#16213e;border-radius:10px;padding:16px;margin-bottom:14px}.card h2{font-size:1em;color:#0f9b8e;margin-bottom:10px}label{display:block;font-size:.85em;margin-bottom:4px;color:#a0a0a0}input[type=text],input[type=password]{width:100%;padding:10px;border:1px solid #333;border-radius:6px;background:#0f3460;color:#e0e0e0;font-size:1em;margin-bottom:8px}.pw-wrap{position:relative}.pw-wrap input{padding-right:40px}.pw-toggle,.pw-toggle:active{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:#a0a0a0;cursor:pointer;font-size:1.2em;width:auto;padding:4px;margin:0}input[type=color]{height:36px;border:none;border-radius:6px;background:none;cursor:pointer;padding:0}input[type=range]{width:100%;margin-bottom:4px}select{width:100%;padding:10px;border:1px solid #333;border-radius:6px;background:#0f3460;color:#e0e0e0;font-size:1em;margin-bottom:8px}button{width:100%;padding:10px;border:none;border-radius:6px;font-size:1em;cursor:pointer;background:#e94560;color:#fff;margin-top:6px}button:active{background:#c73651}.status{font-size:.85em;color:#888;text-align:center;margin-top:6px}.ok{color:#0f9b8e}.err{color:#e94560}#speedVal,#brightVal{font-weight:bold;color:#0f9b8e}.msg-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:10px;background:#0f3460;border-radius:6px}.msg-row input[type=checkbox]{width:20px;height:20px;flex-shrink:0}.msg-row input[type=text]{flex:1;margin-bottom:0}.msg-row input[type=color]{width:40px;flex-shrink:0;margin:0}.msg-num{color:#0f9b8e;font-weight:bold;font-size:.85em;width:16px;flex-shrink:0}.hidden{display:none}.btn-warn{background:#b33;margin-top:12px}.btn-warn:active{background:#922}</style></head><body><h1>ManCave Scroller</h1><div id='st' class='status'>Loading...</div><div id='mainView'><div class='card'><h2>Messages</h2><div id='msgPreview'></div><button onclick='showMessages()'>Edit Messages</button></div><div class='card'><h2>Appearance</h2><label>Scroll speed (1-10):</label><input type='range' id='speed' min='1' max='10' value='5' oninput='g("speedVal").textContent=this.value'><span id='speedVal'>5</span><label>Brightness (1-255):</label><input type='range' id='bright' min='1' max='255' value='32' oninput='g("brightVal").textContent=this.value'><span id='brightVal'>32</span><button onclick='saveAppearance()'>Save</button></div><div class='card'><h2>WiFi Setup</h2><label>SSID:</label><input type='text' id='ssid' placeholder='WiFi network name'><label>Password:</label><div class='pw-wrap'><input type='password' id='pass' placeholder='WiFi password'><button type='button' class='pw-toggle' onclick='togglePw()' title='Show password' style='opacity:.6'>&#128065;</button></div><button onclick='setWifi()'>Connect to WiFi</button><button onclick='showAdvanced()' style='background:#555;margin-top:8px'>Advanced</button></div></div><div id='msgView' class='hidden'><div class='card'><h2>Edit Messages</h2><div id='msgEditor'></div><button onclick='saveMessages()'>Save Messages</button><button onclick='showMain()' style='background:#555;margin-top:8px'>Back</button></div></div><div id='advView' class='hidden'><div class='card'><h2>Advanced</h2><label>Panel size:</label><select id='panelCols'><option value='32'>8 x 32 (1 panel)</option><option value='64'>8 x 64 (2 panels)</option><option value='96'>8 x 96 (3 panels)</option><option value='128'>8 x 128 (4 panels)</option></select><button onclick='saveAdvanced()'>Save Panel Size</button><button class='btn-warn' onclick='factoryReset()'>Factory Default</button><button onclick='showMain()' style='background:#555;margin-top:8px'>Back</button></div></div><script>function g(i){return document.getElementById(i)}var msgs=[];function setVal(ep,d){fetch('/api/'+ep,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)}).then(r=>r.json()).then(j=>{g('st').className='status ok';g('st').textContent=j.status||'Updated!';}).catch(e=>{g('st').className='status err';g('st').textContent='Error: '+e})}function saveAppearance(){setVal('appearance',{speed:Number(g('speed').value),brightness:Number(g('bright').value)})}function togglePw(){var p=g('pass'),b=p.nextElementSibling;if(p.type==='password'){p.type='text';b.title='Hide password';b.style.opacity='1'}else{p.type='password';b.title='Show password';b.style.opacity='.6'}}function setWifi(){setVal('wifi',{ssid:g('ssid').value,password:g('pass').value})}function rgb2hex(r,g,b){return'#'+[r,g,b].map(x=>('0'+x.toString(16)).slice(-2)).join('')}function hex2rgb(h){return{r:parseInt(h.substr(1,2),16),g:parseInt(h.substr(3,2),16),b:parseInt(h.substr(5,2),16)}}function renderPreview(){var h='';var n=0;for(var i=0;i<msgs.length;i++){if(msgs[i].enabled&&msgs[i].text){n++;h+='<div style="font-size:.85em;color:'+rgb2hex(msgs[i].r,msgs[i].g,msgs[i].b)+';">'+n+'. '+(msgs[i].text.length>30?msgs[i].text.substr(0,30)+'...':msgs[i].text)+'</div>'}}if(!n)h='<div style="font-size:.85em;color:#888">No messages enabled</div>';g('msgPreview').innerHTML=h}function renderEditor(){var h='';for(var i=0;i<msgs.length;i++){h+='<div class="msg-row">';h+='<span class="msg-num">'+(i+1)+'</span>';h+='<input type="checkbox" id="en'+i+'"'+(msgs[i].enabled?' checked':'')+'>';h+='<input type="text" id="mt'+i+'" value="'+(msgs[i].text||'').replace(/"/g,'&quot;')+'" maxlength="200" placeholder="Message '+(i+1)+'">';h+='<input type="color" id="mc'+i+'" value="'+rgb2hex(msgs[i].r,msgs[i].g,msgs[i].b)+'">';h+='</div>'}g('msgEditor').innerHTML=h}function showMessages(){renderEditor();g('mainView').className='hidden';g('msgView').className=''}function showAdvanced(){g('mainView').className='hidden';g('advView').className=''}function showMain(){g('msgView').className='hidden';g('advView').className='hidden';g('mainView').className='';renderPreview()}function saveMessages(){for(var i=0;i<msgs.length;i++){msgs[i].enabled=g('en'+i).checked;msgs[i].text=g('mt'+i).value;var c=hex2rgb(g('mc'+i).value);msgs[i].r=c.r;msgs[i].g=c.g;msgs[i].b=c.b}fetch('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:msgs})}).then(r=>r.json()).then(j=>{g('st').className='status ok';g('st').textContent=j.status||'Saved!';showMain();}).catch(e=>{g('st').className='status err';g('st').textContent='Error: '+e})}function saveAdvanced(){setVal('advanced',{panel_cols:Number(g('panelCols').value)})}function factoryReset(){if(!confirm('Reset all settings to factory defaults? The device will restart.'))return;fetch('/api/factory-reset',{method:'POST'}).then(()=>{g('st').className='status ok';g('st').textContent='Resetting...';}).catch(e=>{g('st').className='status err';g('st').textContent='Error: '+e})}function loadStatus(){fetch('/api/status').then(r=>r.json()).then(j=>{msgs=j.messages||[];g('speed').value=j.speed||5;g('speedVal').textContent=j.speed||5;g('bright').value=j.brightness||32;g('brightVal').textContent=j.brightness||32;if(j.wifi_ssid)g('ssid').value=j.wifi_ssid;if(j.wifi_password)g('pass').value=j.wifi_password;if(j.panel_cols)g('panelCols').value=j.panel_cols;g('st').className='status ok';g('st').textContent='WiFi: '+j.wifi_mode+' | IP: '+j.ip;renderPreview();}).catch(e=>{g('st').className='status err';g('st').textContent='Connection error'})}loadStatus();</script></body></html>
+<!DOCTYPE html>
+<html><head>
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>ManCave Scroller</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:20px;background:#1a1a2e;color:#e0e0e0}
+h1{text-align:center;color:#e94560;margin-bottom:20px;font-size:1.6em}
+.card{background:#16213e;border-radius:10px;padding:16px;margin-bottom:14px}
+.card h2{font-size:1em;color:#0f9b8e;margin-bottom:10px}
+label{display:block;font-size:.85em;margin-bottom:4px;color:#a0a0a0}
+input[type=text],input[type=password]{width:100%;padding:10px;border:1px solid #333;border-radius:6px;background:#0f3460;color:#e0e0e0;font-size:1em;margin-bottom:8px}
+.pw-wrap{position:relative}
+.pw-wrap input{padding-right:40px}
+.pw-toggle,.pw-toggle:active{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:#a0a0a0;cursor:pointer;font-size:1.2em;width:auto;padding:4px;margin:0}
+input[type=color]{height:36px;border:none;border-radius:6px;background:none;cursor:pointer;padding:0}
+input[type=range]{width:100%;margin-bottom:4px}
+select{width:100%;padding:10px;border:1px solid #333;border-radius:6px;background:#0f3460;color:#e0e0e0;font-size:1em;margin-bottom:8px}
+button{width:100%;padding:10px;border:none;border-radius:6px;font-size:1em;cursor:pointer;background:#e94560;color:#fff;margin-top:6px}
+button:active{background:#c73651}
+.status{font-size:.85em;color:#888;text-align:center;margin-top:6px}
+.ok{color:#0f9b8e}
+.err{color:#e94560}
+#speedVal,#brightVal{font-weight:bold;color:#0f9b8e}
+.msg-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;padding:10px;background:#0f3460;border-radius:6px}
+.msg-row input[type=checkbox]{width:20px;height:20px;flex-shrink:0}
+.msg-row input[type=text]{flex:1;margin-bottom:0}
+.msg-row input[type=color]{width:40px;flex-shrink:0;margin:0}
+.msg-num{color:#0f9b8e;font-weight:bold;font-size:.85em;width:16px;flex-shrink:0}
+.hidden{display:none}
+.btn-warn{background:#b33;margin-top:12px}
+.btn-warn:active{background:#922}
+</style>
+</head><body>
+<h1>ManCave Scroller</h1>
+<div id='st' class='status'>Loading...</div>
+
+<!-- Main view -->
+<div id='mainView'>
+
+<div class='card'><h2>Messages</h2>
+<div id='msgPreview'></div>
+<button onclick='showMessages()'>Edit Messages</button>
+</div>
+
+<div class='card'><h2>Appearance</h2>
+<label>Scroll speed (1-10):</label>
+<input type='range' id='speed' min='1' max='10' value='5' oninput='g("speedVal").textContent=this.value'>
+<span id='speedVal'>5</span>
+<label>Brightness (1-255):</label>
+<input type='range' id='bright' min='1' max='255' value='32' oninput='g("brightVal").textContent=this.value'>
+<span id='brightVal'>32</span>
+<button onclick='saveAppearance()'>Save</button>
+</div>
+
+<div class='card'><h2>WiFi Setup</h2>
+<label>SSID:</label>
+<input type='text' id='ssid' placeholder='WiFi network name'>
+<label>Password:</label>
+<div class='pw-wrap'>
+<input type='password' id='pass' placeholder='WiFi password'>
+<button type='button' class='pw-toggle' onclick='togglePw()' title='Show password' style='opacity:.6'>&#128065;</button>
+</div>
+<button onclick='setWifi()'>Connect to WiFi</button>
+<button onclick='showAdvanced()' style='background:#555;margin-top:8px'>Advanced</button>
+</div>
+
+</div>
+
+<!-- Messages editor view -->
+<div id='msgView' class='hidden'>
+<div class='card'><h2>Edit Messages</h2>
+<div id='msgEditor'></div>
+<button onclick='saveMessages()'>Save Messages</button>
+<button onclick='showMain()' style='background:#555;margin-top:8px'>Back</button>
+</div>
+</div>
+
+<!-- Advanced view -->
+<div id='advView' class='hidden'>
+<div class='card'><h2>Advanced</h2>
+<label>Panel size:</label>
+<select id='panelCols'>
+<option value='32'>8 x 32 (1 panel)</option>
+<option value='64'>8 x 64 (2 panels)</option>
+<option value='96'>8 x 96 (3 panels)</option>
+<option value='128'>8 x 128 (4 panels)</option>
+</select>
+<button onclick='saveAdvanced()'>Save Panel Size</button>
+<div style='border-top:1px solid #333;margin:14px 0'></div>
+<label>RSS News Feed:</label>
+<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>
+<input type='checkbox' id='rssEn' style='width:20px;height:20px;flex-shrink:0'>
+<span style='font-size:.85em;color:#a0a0a0'>Enable RSS news ticker</span>
+</div>
+<input type='text' id='rssUrl' placeholder='https://feeds.npr.org/1001/rss.xml'>
+<button onclick='saveRss()'>Save RSS Settings</button>
+<div style='border-top:1px solid #333;margin:14px 0'></div>
+<button class='btn-warn' onclick='factoryReset()'>Factory Default</button>
+<button onclick='showMain()' style='background:#555;margin-top:8px'>Back</button>
+</div>
+</div>
+
+<!-- Mock API for browser testing -->
+<script>
+const _origFetch = window.fetch;
+window.fetch = function(url, opts) {
+    if (url === '/api/status') {
+        return Promise.resolve({json: () => Promise.resolve({
+            messages: [
+                {text: "Hello Man Cave!", r: 255, g: 0, b: 0, enabled: true},
+                {text: "Test message 2", r: 0, g: 255, b: 0, enabled: true},
+                {text: "", r: 0, g: 0, b: 255, enabled: false},
+                {text: "", r: 255, g: 255, b: 0, enabled: false},
+                {text: "", r: 255, g: 0, b: 255, enabled: false}
+            ],
+            speed: 5, brightness: 32, wifi_mode: "STA", ip: "192.168.1.100",
+            panel_cols: 32, wifi_ssid: "MyWiFi", wifi_password: "secret123",
+            rss_enabled: true, rss_url: "https://feeds.npr.org/1001/rss.xml"
+        })});
+    }
+    if (opts && opts.method === 'POST') {
+        return Promise.resolve({json: () => Promise.resolve({status: "OK (mock)"})});
+    }
+    return _origFetch(url, opts);
+};
+</script>
+
+<!-- Application logic -->
+<script>
+function g(i){return document.getElementById(i)}
+var msgs=[];
+
+function setVal(ep,d){
+    fetch('/api/'+ep,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(d)}).then(r=>r.json()).then(j=>{
+        g('st').className='status ok';g('st').textContent=j.status||'Updated!';
+    }).catch(e=>{g('st').className='status err';g('st').textContent='Error: '+e});
+}
+
+function saveAppearance(){
+    setVal('appearance',{speed:Number(g('speed').value),brightness:Number(g('bright').value)});
+}
+
+function togglePw(){
+    var p=g('pass'),b=p.nextElementSibling;
+    if(p.type==='password'){p.type='text';b.title='Hide password';b.style.opacity='1'}
+    else{p.type='password';b.title='Show password';b.style.opacity='.6'}
+}
+
+function setWifi(){
+    setVal('wifi',{ssid:g('ssid').value,password:g('pass').value});
+}
+
+function rgb2hex(r,g,b){
+    return'#'+[r,g,b].map(x=>('0'+x.toString(16)).slice(-2)).join('');
+}
+
+function hex2rgb(h){
+    return{r:parseInt(h.substr(1,2),16),g:parseInt(h.substr(3,2),16),b:parseInt(h.substr(5,2),16)};
+}
+
+function renderPreview(){
+    var h='';var n=0;
+    for(var i=0;i<msgs.length;i++){
+        if(msgs[i].enabled&&msgs[i].text){
+            n++;h+='<div style="font-size:.85em;color:'+rgb2hex(msgs[i].r,msgs[i].g,msgs[i].b)
+            +';">'+n+'. '+(msgs[i].text.length>30?msgs[i].text.substr(0,30)+'...':msgs[i].text)+'</div>';
+        }
+    }
+    if(!n)h='<div style="font-size:.85em;color:#888">No messages enabled</div>';
+    g('msgPreview').innerHTML=h;
+}
+
+function renderEditor(){
+    var h='';
+    for(var i=0;i<msgs.length;i++){
+        h+='<div class="msg-row">';
+        h+='<span class="msg-num">'+(i+1)+'</span>';
+        h+='<input type="checkbox" id="en'+i+'"'+(msgs[i].enabled?' checked':'')+'>';
+        h+='<input type="text" id="mt'+i+'" value="'+(msgs[i].text||'').replace(/"/g,'&quot;')+'" maxlength="200" placeholder="Message '+(i+1)+'">';
+        h+='<input type="color" id="mc'+i+'" value="'+rgb2hex(msgs[i].r,msgs[i].g,msgs[i].b)+'">';
+        h+='</div>';
+    }
+    g('msgEditor').innerHTML=h;
+}
+
+function showMessages(){renderEditor();g('mainView').className='hidden';g('msgView').className='';}
+function showAdvanced(){g('mainView').className='hidden';g('advView').className='';}
+function showMain(){g('msgView').className='hidden';g('advView').className='hidden';g('mainView').className='';renderPreview();}
+
+function saveMessages(){
+    for(var i=0;i<msgs.length;i++){
+        msgs[i].enabled=g('en'+i).checked;
+        msgs[i].text=g('mt'+i).value;
+        var c=hex2rgb(g('mc'+i).value);
+        msgs[i].r=c.r;msgs[i].g=c.g;msgs[i].b=c.b;
+    }
+    fetch('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({messages:msgs})}).then(r=>r.json()).then(j=>{
+        g('st').className='status ok';g('st').textContent=j.status||'Saved!';
+        showMain();
+    }).catch(e=>{g('st').className='status err';g('st').textContent='Error: '+e});
+}
+
+function saveAdvanced(){
+    setVal('advanced',{panel_cols:Number(g('panelCols').value)});
+}
+
+function saveRss(){
+    setVal('rss',{enabled:g('rssEn').checked,url:g('rssUrl').value});
+}
+
+function factoryReset(){
+    if(!confirm('Reset all settings to factory defaults? The device will restart.'))return;
+    fetch('/api/factory-reset',{method:'POST'}).then(()=>{
+        g('st').className='status ok';g('st').textContent='Resetting...';
+    }).catch(e=>{g('st').className='status err';g('st').textContent='Error: '+e});
+}
+
+function loadStatus(){
+    fetch('/api/status').then(r=>r.json()).then(j=>{
+        msgs=j.messages||[];
+        g('speed').value=j.speed||5;g('speedVal').textContent=j.speed||5;
+        g('bright').value=j.brightness||32;g('brightVal').textContent=j.brightness||32;
+        if(j.wifi_ssid)g('ssid').value=j.wifi_ssid;
+        if(j.wifi_password)g('pass').value=j.wifi_password;
+        if(j.panel_cols)g('panelCols').value=j.panel_cols;
+        g('rssEn').checked=!!j.rss_enabled;
+        if(j.rss_url)g('rssUrl').value=j.rss_url;
+        g('st').className='status ok';
+        g('st').textContent='WiFi: '+j.wifi_mode+' | IP: '+j.ip;
+        renderPreview();
+    }).catch(e=>{g('st').className='status err';g('st').textContent='Connection error'});
+}
+loadStatus();
+</script>
+</body></html>

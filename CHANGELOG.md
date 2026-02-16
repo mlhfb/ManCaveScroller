@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Added
+- **RSS news feed support** — scroll headlines from any RSS feed (e.g., NPR, BBC)
+  - Enable and configure via the Advanced page in the web UI
+  - Each RSS item scrolls its title then description, with rotating colors (white, yellow, green, red, blue, cyan, violet)
+  - Custom messages interleave after every 4th news item, cycling sequentially
+  - WiFi turns on briefly to fetch the feed, then off for glitch-free scrolling
+  - After all items display, the feed re-fetches automatically
+  - Full HTML entity decoding and UTF-8 to ASCII sanitization for clean display
+  - New `POST /api/rss` endpoint for enabling/configuring RSS
+  - RSS status included in `/api/status` response
 - **Multi-message support** — configure up to 5 scrolling messages, each with its own text, color, and enable/disable toggle (fixes #3)
   - Messages cycle automatically: when one finishes scrolling, the next enabled message starts
   - New "Edit Messages" button on the web UI opens a dedicated editor view

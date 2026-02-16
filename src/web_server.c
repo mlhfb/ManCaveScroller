@@ -55,6 +55,8 @@ static esp_err_t status_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "panel_cols", s->panel_cols);
     cJSON_AddStringToObject(root, "wifi_ssid", s->wifi_ssid);
     cJSON_AddStringToObject(root, "wifi_password", s->wifi_password);
+    cJSON_AddBoolToObject(root, "rss_enabled", s->rss_enabled);
+    cJSON_AddStringToObject(root, "rss_url", s->rss_url);
 
     char *json = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");
@@ -315,6 +317,29 @@ static esp_err_t advanced_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+// POST /api/rss — update RSS settings
+static esp_err_t rss_handler(httpd_req_t *req)
+{
+    cJSON *json = read_json_body(req);
+    if (!json) { send_err(req, "Invalid JSON"); return ESP_OK; }
+
+    app_settings_t *s = settings_get();
+
+    cJSON *en = cJSON_GetObjectItem(json, "enabled");
+    if (cJSON_IsBool(en)) s->rss_enabled = cJSON_IsTrue(en);
+
+    cJSON *url = cJSON_GetObjectItem(json, "url");
+    if (cJSON_IsString(url)) {
+        strncpy(s->rss_url, url->valuestring, SETTINGS_MAX_URL_LEN);
+        s->rss_url[SETTINGS_MAX_URL_LEN] = '\0';
+    }
+
+    settings_save(s);
+    cJSON_Delete(json);
+    send_ok(req, "RSS settings updated");
+    return ESP_OK;
+}
+
 // POST /api/factory-reset — erase NVS and restart
 static esp_err_t factory_reset_handler(httpd_req_t *req)
 {
@@ -359,6 +384,7 @@ void web_server_start(void)
         {.uri = "/api/wifi",          .method = HTTP_POST, .handler = wifi_handler},
         {.uri = "/api/appearance",    .method = HTTP_POST, .handler = appearance_handler},
         {.uri = "/api/advanced",      .method = HTTP_POST, .handler = advanced_handler},
+        {.uri = "/api/rss",           .method = HTTP_POST, .handler = rss_handler},
         {.uri = "/api/factory-reset", .method = HTTP_POST, .handler = factory_reset_handler},
         {.uri = "/*",                 .method = HTTP_GET,  .handler = captive_redirect_handler},
     };

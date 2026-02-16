@@ -23,6 +23,8 @@ static const app_settings_t default_settings = {
     .panel_cols = 32,
     .wifi_ssid = "",
     .wifi_password = "",
+    .rss_enabled = false,
+    .rss_url = "",
 };
 
 static void load_from_nvs(void)
@@ -89,6 +91,13 @@ static void load_from_nvs(void)
     len = sizeof(current_settings.wifi_password);
     nvs_get_str(handle, "wifi_pass", current_settings.wifi_password, &len);
 
+    uint8_t rss_en = current_settings.rss_enabled ? 1 : 0;
+    nvs_get_u8(handle, "rss_en", &rss_en);
+    current_settings.rss_enabled = (rss_en != 0);
+
+    len = sizeof(current_settings.rss_url);
+    nvs_get_str(handle, "rss_url", current_settings.rss_url, &len);
+
     nvs_close(handle);
     ESP_LOGI(TAG, "Settings loaded from NVS");
 }
@@ -134,6 +143,8 @@ esp_err_t settings_save(const app_settings_t *settings)
     nvs_set_u8(handle, "panel_cols", current_settings.panel_cols);
     nvs_set_str(handle, "wifi_ssid", current_settings.wifi_ssid);
     nvs_set_str(handle, "wifi_pass", current_settings.wifi_password);
+    nvs_set_u8(handle, "rss_en", current_settings.rss_enabled ? 1 : 0);
+    nvs_set_str(handle, "rss_url", current_settings.rss_url);
 
     err = nvs_commit(handle);
     nvs_close(handle);

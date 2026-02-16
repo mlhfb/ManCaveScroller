@@ -9,6 +9,7 @@
 #define SETTINGS_MAX_SSID_LEN    32
 #define SETTINGS_MAX_PASS_LEN    64
 #define MAX_MESSAGES              5
+#define SETTINGS_MAX_URL_LEN     256
 
 typedef struct {
     char text[SETTINGS_MAX_TEXT_LEN + 1];
@@ -25,6 +26,8 @@ typedef struct {
     uint8_t panel_cols;  // 32, 64, 96, or 128
     char wifi_ssid[SETTINGS_MAX_SSID_LEN + 1];
     char wifi_password[SETTINGS_MAX_PASS_LEN + 1];
+    bool rss_enabled;
+    char rss_url[SETTINGS_MAX_URL_LEN + 1];
 } app_settings_t;
 
 esp_err_t settings_init(void);

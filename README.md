@@ -13,7 +13,8 @@ WiFi-controlled scrolling LED display built on ESP32. Set your message, color, s
 - **Captive portal** — auto-redirects to the config page when connected to the AP
 - **Persistent settings** — saved to NVS flash, survives reboots
 - **Config mode via BOOT button** — press to enable WiFi and access the web UI, press again to resume glitch-free scrolling
-- **Advanced settings** — configurable panel size, factory reset
+- **RSS news feed** — scroll headlines from any RSS feed (e.g., NPR), with automatic re-fetch and custom message interleaving
+- **Advanced settings** — configurable panel size, RSS feed, factory reset
 - **No external dependencies** — custom RMT driver, embedded web page, no SPIFFS
 
 ## Hardware
@@ -64,6 +65,7 @@ pio device monitor -b 115200
 | `POST` | `/api/appearance` | `{"speed":5,"brightness":32}` | Set speed + brightness together |
 | `POST` | `/api/wifi` | `{"ssid":"...","password":"..."}` | Connect to WiFi |
 | `POST` | `/api/advanced` | `{"panel_cols":64}` | Set panel size (32/64/96/128) |
+| `POST` | `/api/rss` | `{"enabled":true,"url":"..."}` | Enable/configure RSS feed |
 | `POST` | `/api/factory-reset` | — | Erase NVS and restart device |
 
 ## Project Structure
@@ -76,6 +78,7 @@ src/
   text_scroller.c   Horizontal scrolling engine, mutex-protected settings
   settings.c        NVS persistence (namespace "mancave")
   wifi_manager.c    AP/STA dual mode, captive portal DNS
+  rss_fetcher.c    HTTPS RSS feed fetcher, XML parser, HTML entity decoder
   web_server.c      esp_http_server with JSON API endpoints (cJSON)
 include/
   web_page.h        Embedded HTML/CSS/JS dark theme UI (single const string)
@@ -84,6 +87,7 @@ include/
   text_scroller.h   Scroller control API
   settings.h        Settings struct and NVS load/save
   wifi_manager.h    WiFi mode control
+  rss_fetcher.h    RSS fetch API and item struct
   web_server.h      Server start/stop
 ```
 
