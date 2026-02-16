@@ -108,7 +108,7 @@ static const char WEB_PAGE[] =
     "<input type='checkbox' id='rssEn' style='width:20px;height:20px;flex-shrink:0'>"
     "<span style='font-size:.85em;color:#a0a0a0'>Enable RSS news ticker</span>"
     "</div>"
-    "<input type='text' id='rssUrl' placeholder='https://feeds.npr.org/1001/rss.xml'>"
+    "<input type='text' id='rssUrl' placeholder='RSS feed URL'>"
     "<button onclick='saveRss()'>Save RSS Settings</button>"
     "<div style='border-top:1px solid #333;margin:14px 0'></div>"
     "<button class='btn-warn' onclick='factoryReset()'>Factory Default</button>"
@@ -183,7 +183,9 @@ static const char WEB_PAGE[] =
     "setVal('advanced',{panel_cols:Number(g('panelCols').value)})}"
 
     "function saveRss(){"
-    "setVal('rss',{enabled:g('rssEn').checked,url:g('rssUrl').value})}"
+    "if(g('rssEn').checked&&!g('rssUrl').value.trim()){"
+    "g('st').className='status err';g('st').textContent='Enter an RSS feed URL';return}"
+    "setVal('rss',{enabled:g('rssEn').checked,url:g('rssUrl').value.trim()})}"
 
     "function factoryReset(){"
     "if(!confirm('Reset all settings to factory defaults? The device will restart.'))return;"

@@ -225,7 +225,11 @@ void app_main(void)
 
     // Initial content setup
     int current_msg = -1;
-    if (wifi_manager_get_mode() == WIFI_MGR_MODE_STA) {
+    wifi_mgr_mode_t mode = wifi_manager_get_mode();
+    ESP_LOGI(TAG, "WiFi mode=%d, rss_enabled=%d, rss_url='%.40s'",
+             mode, settings->rss_enabled, settings->rss_url);
+
+    if (mode == WIFI_MGR_MODE_STA) {
         // Try initial RSS fetch if enabled
         if (settings->rss_enabled && strlen(settings->rss_url) > 0) {
             if (fetch_rss_feed(settings)) {
@@ -245,6 +249,8 @@ void app_main(void)
                 scroller_set_text("No messages     Press button to configure");
             }
         }
+    } else {
+        ESP_LOGI(TAG, "Not in STA mode — RSS requires STA, using custom messages");
     }
 
     // Initialize BOOT button for config mode toggle
@@ -287,6 +293,8 @@ void app_main(void)
 
                 // Check if RSS should be (re-)activated
                 rss_active = false;
+                ESP_LOGI(TAG, "Config exit: rss_enabled=%d, rss_url='%.40s'",
+                         settings->rss_enabled, settings->rss_url);
                 if (settings->rss_enabled && strlen(settings->rss_url) > 0) {
                     if (fetch_rss_feed(settings)) {
                         rss_active = true;

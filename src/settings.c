@@ -23,8 +23,8 @@ static const app_settings_t default_settings = {
     .panel_cols = 32,
     .wifi_ssid = "",
     .wifi_password = "",
-    .rss_enabled = false,
-    .rss_url = "",
+    .rss_enabled = true,
+    .rss_url = "https://feeds.npr.org/1001/rss.xml",
 };
 
 static void load_from_nvs(void)
@@ -144,7 +144,10 @@ esp_err_t settings_save(const app_settings_t *settings)
     nvs_set_str(handle, "wifi_ssid", current_settings.wifi_ssid);
     nvs_set_str(handle, "wifi_pass", current_settings.wifi_password);
     nvs_set_u8(handle, "rss_en", current_settings.rss_enabled ? 1 : 0);
-    nvs_set_str(handle, "rss_url", current_settings.rss_url);
+    esp_err_t url_err = nvs_set_str(handle, "rss_url", current_settings.rss_url);
+    if (url_err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to save rss_url: %s", esp_err_to_name(url_err));
+    }
 
     err = nvs_commit(handle);
     nvs_close(handle);

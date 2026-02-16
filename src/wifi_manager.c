@@ -155,7 +155,12 @@ static void start_sta_mode(const char *ssid, const char *password)
 
     if (bits & WIFI_CONNECTED_BIT) {
         ESP_LOGI(TAG, "STA connected to %s — suspending WiFi for display", ssid);
+        // Suppress disconnect-handler retries during intentional shutdown
+        radio_cycling = true;
+        sta_retry_count = 1;
         esp_wifi_stop();
+        vTaskDelay(pdMS_TO_TICKS(50));
+        radio_cycling = false;
     } else {
         ESP_LOGW(TAG, "STA connection to %s failed, starting AP mode", ssid);
         start_ap_mode();
@@ -320,6 +325,9 @@ bool wifi_manager_radio_on(void)
 
 void wifi_manager_radio_off(void)
 {
+    // Suppress disconnect-handler retries during intentional shutdown
+    radio_cycling = true;
+    sta_retry_count = 1;
     esp_wifi_stop();
     vTaskDelay(pdMS_TO_TICKS(50)); // let pending disconnect events drain
     radio_cycling = false;

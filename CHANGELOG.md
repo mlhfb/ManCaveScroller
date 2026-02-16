@@ -45,6 +45,11 @@
 
 ### Fixed
 - Display glitches (random colored pixels) caused by WiFi radio interrupts preempting the RMT encoder — resolved by keeping WiFi off during display operation (fixes #1)
+- WiFi disconnect handler race condition — `esp_wifi_stop()` during intentional radio cycling triggered spurious retry attempts with 2-second blocking delays; now suppressed via `radio_cycling` flag
+- Default settings now enable RSS with NPR feed URL pre-configured (previously blank, causing confusion with placeholder text)
+- RSS URL validation in web UI — warns if RSS is enabled without a URL entered
+- NVS error checking added for RSS URL save operations
+- Disabled ANSI color escape codes in serial log output (`CONFIG_LOG_COLORS`) to prevent garbled terminal output
 
 ## [1.0.0] - 2026-02-12
 

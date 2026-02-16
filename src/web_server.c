@@ -334,6 +334,7 @@ static esp_err_t rss_handler(httpd_req_t *req)
         s->rss_url[SETTINGS_MAX_URL_LEN] = '\0';
     }
 
+    ESP_LOGI(TAG, "RSS save: enabled=%d, url='%.60s'", s->rss_enabled, s->rss_url);
     settings_save(s);
     cJSON_Delete(json);
     send_ok(req, "RSS settings updated");
