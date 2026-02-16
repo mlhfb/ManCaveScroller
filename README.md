@@ -120,6 +120,29 @@ Default brightness is 32/255 — conservative to keep current draw manageable. 2
 6. Press the **BOOT button** to enter config mode — WiFi reconnects, web UI becomes accessible
 7. Press **BOOT again** to exit config mode — WiFi off, settings applied, scrolling resumes
 
+## Contributor Checklist
+
+Use this quick map before opening a PR:
+
+- New API endpoint: `src/web_server.c` (handler + route registration). Add `include/settings.h` + `src/settings.c` updates if persistent state is needed, and wire UI in `include/web_page.h` if exposed.
+- UI changes: `include/web_page.h` (embedded HTML/CSS/JS). Keep API contracts aligned with `src/web_server.c`.
+- New persistent setting: add field in `include/settings.h`, defaults + NVS load/save keys in `src/settings.c`, and include it in `/api/status` in `src/web_server.c`.
+- Scrolling behavior/timing: `src/text_scroller.c` for rendering/speed behavior, `src/main.c` for cycle transitions/content switching.
+- Message rotation rules: `src/main.c` (`next_enabled_message`, cycle logic) and `include/settings.h` for message schema/count changes.
+- RSS behavior: `src/rss_fetcher.c` (fetch/parse/sanitize), `src/main.c` (`fetch_rss_feed`, `rss_advance`), `src/web_server.c` (`/api/rss`).
+- WiFi/config mode behavior: `src/wifi_manager.c` (AP/STA/radio lifecycle + captive DNS), `src/main.c` (BOOT button config mode flow).
+- LED mapping/timing: `src/led_panel.c` (RMT timing, serpentine mapping, panel cols), `include/led_panel.h` (limits/default GPIO macro).
+- Font/glyph changes: `src/font.c`, `include/font.h`.
+- Build/board config: `platformio.ini` (board/framework/build flags), `src/CMakeLists.txt` (component dependencies).
+
+Minimum validation before merge:
+
+- Build succeeds: `pio run`
+- API responses still parse in UI (`GET /api/status` and any changed POST endpoint)
+- Scrolling remains stable with WiFi off in STA mode
+- NVS defaults/migration still work after reboot
+- Panel width (32/64/96/128) and brightness settings apply correctly
 ## License
 
 MIT
+
