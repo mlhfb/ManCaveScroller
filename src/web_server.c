@@ -57,6 +57,17 @@ static esp_err_t status_handler(httpd_req_t *req)
     cJSON_AddStringToObject(root, "wifi_password", s->wifi_password);
     cJSON_AddBoolToObject(root, "rss_enabled", s->rss_enabled);
     cJSON_AddStringToObject(root, "rss_url", s->rss_url);
+    cJSON_AddNumberToObject(root, "rss_source_count", s->rss_source_count);
+    cJSON *rss_sources = cJSON_AddArrayToObject(root, "rss_sources");
+    int source_count = s->rss_source_count;
+    if (source_count < 1 || source_count > MAX_RSS_SOURCES) source_count = 1;
+    for (int i = 0; i < source_count; i++) {
+        cJSON *src = cJSON_CreateObject();
+        cJSON_AddStringToObject(src, "name", s->rss_sources[i].name);
+        cJSON_AddBoolToObject(src, "enabled", s->rss_sources[i].enabled);
+        cJSON_AddStringToObject(src, "url", s->rss_sources[i].url);
+        cJSON_AddItemToArray(rss_sources, src);
+    }
 
     char *json = cJSON_PrintUnformatted(root);
     httpd_resp_set_type(req, "application/json");
@@ -333,6 +344,15 @@ static esp_err_t rss_handler(httpd_req_t *req)
         strncpy(s->rss_url, url->valuestring, SETTINGS_MAX_URL_LEN);
         s->rss_url[SETTINGS_MAX_URL_LEN] = '\0';
     }
+    // Legacy endpoint controls source slot 0.
+    s->rss_source_count = 1;
+    s->rss_sources[0].enabled = s->rss_enabled;
+    if (s->rss_sources[0].name[0] == '\0') {
+        strncpy(s->rss_sources[0].name, "Primary RSS", SETTINGS_MAX_RSS_NAME_LEN);
+        s->rss_sources[0].name[SETTINGS_MAX_RSS_NAME_LEN] = '\0';
+    }
+    strncpy(s->rss_sources[0].url, s->rss_url, SETTINGS_MAX_URL_LEN);
+    s->rss_sources[0].url[SETTINGS_MAX_URL_LEN] = '\0';
 
     ESP_LOGI(TAG, "RSS save: enabled=%d, url='%.60s'", s->rss_enabled, s->rss_url);
     settings_save(s);

@@ -12,7 +12,27 @@ static char current_text[SCROLLER_MAX_TEXT_LEN + 1] = "";
 static uint8_t color_r = 255, color_g = 0, color_b = 0;
 static uint8_t scroll_speed = 5; // 1-10
 static int scroll_x = 0;
+static uint16_t scroll_phase_q8 = 0;
 static SemaphoreHandle_t scroller_mutex = NULL;
+
+// Fixed frame timing improves visual smoothness.
+#define SCROLLER_FRAME_MS 16
+#define SCROLLER_Q8_ONE   256
+
+// Pixels-per-frame in Q8 fixed-point (index 0 => speed 1).
+// This gives finer speed granularity with a faster top end than delay-based stepping.
+static const uint16_t speed_px_per_frame_q8[10] = {
+    56,   // 0.22 px/frame
+    72,   // 0.28 px/frame
+    92,   // 0.36 px/frame
+    116,  // 0.45 px/frame
+    144,  // 0.56 px/frame
+    176,  // 0.69 px/frame
+    212,  // 0.83 px/frame
+    252,  // 0.98 px/frame
+    296,  // 1.16 px/frame
+    344,  // 1.34 px/frame
+};
 
 static void render_frame(void)
 {
@@ -60,26 +80,32 @@ int scroller_tick(bool *cycle_complete)
     xSemaphoreTake(scroller_mutex, portMAX_DELAY);
     render_frame();
 
-    // Advance scroll position and detect cycle completion
+    // Advance by fractional pixels (Q8), then commit whole-pixel steps.
+    // This preserves smooth pacing while still rendering on pixel boundaries.
     int text_len = strlen(current_text);
     bool done = false;
     if (text_len > 0) {
         int char_width = FONT_WIDTH + 1;
         int total_width = text_len * char_width + led_panel_get_cols();
-        scroll_x = (scroll_x + 1) % total_width;
-        // Cycle completes when scroll_x returns to initial position (blank gap)
         int initial_pos = text_len * char_width;
-        done = (scroll_x == initial_pos);
+        uint16_t step_q8 = speed_px_per_frame_q8[scroll_speed - 1];
+
+        scroll_phase_q8 += step_q8;
+        while (scroll_phase_q8 >= SCROLLER_Q8_ONE) {
+            scroll_phase_q8 -= SCROLLER_Q8_ONE;
+            scroll_x = (scroll_x + 1) % total_width;
+            // Cycle completes when scroll_x returns to initial blank-gap position.
+            if (scroll_x == initial_pos) {
+                done = true;
+            }
+        }
     }
 
-    uint8_t spd = scroll_speed;
     xSemaphoreGive(scroller_mutex);
 
     if (cycle_complete) *cycle_complete = done;
 
-    int delay_ms = 98 - (spd * 8);
-    if (delay_ms < 20) delay_ms = 20;
-    return delay_ms;
+    return SCROLLER_FRAME_MS;
 }
 
 void scroller_set_text(const char *text)
@@ -88,6 +114,7 @@ void scroller_set_text(const char *text)
     strncpy(current_text, text, SCROLLER_MAX_TEXT_LEN);
     current_text[SCROLLER_MAX_TEXT_LEN] = '\0';
     scroll_x = strlen(current_text) * (FONT_WIDTH + 1);
+    scroll_phase_q8 = 0;
     xSemaphoreGive(scroller_mutex);
     ESP_LOGI(TAG, "Text set to: %s", current_text);
 }

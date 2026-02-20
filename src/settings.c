@@ -25,7 +25,39 @@ static const app_settings_t default_settings = {
     .wifi_password = "",
     .rss_enabled = true,
     .rss_url = "https://feeds.npr.org/1001/rss.xml",
+    .rss_source_count = 0,  // normalized from legacy rss_enabled/rss_url
 };
+
+static void normalize_rss_sources(app_settings_t *s)
+{
+    if (s->rss_source_count > MAX_RSS_SOURCES) {
+        s->rss_source_count = MAX_RSS_SOURCES;
+    }
+
+    bool has_configured_source = false;
+    for (int i = 0; i < s->rss_source_count; i++) {
+        if (s->rss_sources[i].enabled && strlen(s->rss_sources[i].url) > 0) {
+            has_configured_source = true;
+            break;
+        }
+    }
+
+    // Backward-compatible path: if no source array configured, map legacy rss settings to slot 0.
+    if (!has_configured_source) {
+        s->rss_source_count = 1;
+        memset(&s->rss_sources[0], 0, sizeof(s->rss_sources[0]));
+        s->rss_sources[0].enabled = s->rss_enabled && strlen(s->rss_url) > 0;
+        strncpy(s->rss_sources[0].name, "Primary RSS", SETTINGS_MAX_RSS_NAME_LEN);
+        s->rss_sources[0].name[SETTINGS_MAX_RSS_NAME_LEN] = '\0';
+        strncpy(s->rss_sources[0].url, s->rss_url, SETTINGS_MAX_URL_LEN);
+        s->rss_sources[0].url[SETTINGS_MAX_URL_LEN] = '\0';
+    }
+
+    // Keep legacy fields mirrored to source slot 0 for current API compatibility.
+    s->rss_enabled = s->rss_sources[0].enabled;
+    strncpy(s->rss_url, s->rss_sources[0].url, SETTINGS_MAX_URL_LEN);
+    s->rss_url[SETTINGS_MAX_URL_LEN] = '\0';
+}
 
 static void load_from_nvs(void)
 {
@@ -98,6 +130,30 @@ static void load_from_nvs(void)
     len = sizeof(current_settings.rss_url);
     nvs_get_str(handle, "rss_url", current_settings.rss_url, &len);
 
+    // Load source list (future multi-source support).
+    nvs_get_u8(handle, "rss_count", &current_settings.rss_source_count);
+    if (current_settings.rss_source_count > MAX_RSS_SOURCES) {
+        current_settings.rss_source_count = MAX_RSS_SOURCES;
+    }
+    for (int i = 0; i < current_settings.rss_source_count; i++) {
+        char key[20];
+
+        snprintf(key, sizeof(key), "rs%d_en", i);
+        uint8_t en = current_settings.rss_sources[i].enabled ? 1 : 0;
+        nvs_get_u8(handle, key, &en);
+        current_settings.rss_sources[i].enabled = (en != 0);
+
+        snprintf(key, sizeof(key), "rs%d_name", i);
+        len = sizeof(current_settings.rss_sources[i].name);
+        nvs_get_str(handle, key, current_settings.rss_sources[i].name, &len);
+
+        snprintf(key, sizeof(key), "rs%d_url", i);
+        len = sizeof(current_settings.rss_sources[i].url);
+        nvs_get_str(handle, key, current_settings.rss_sources[i].url, &len);
+    }
+
+    normalize_rss_sources(&current_settings);
+
     nvs_close(handle);
     ESP_LOGI(TAG, "Settings loaded from NVS");
 }
@@ -118,6 +174,19 @@ esp_err_t settings_save(const app_settings_t *settings)
     }
 
     memcpy(&current_settings, settings, sizeof(app_settings_t));
+
+    // Current API still writes legacy rss_enabled/rss_url fields. Mirror those into slot 0.
+    if (current_settings.rss_source_count == 0 || current_settings.rss_source_count > MAX_RSS_SOURCES) {
+        current_settings.rss_source_count = 1;
+    }
+    current_settings.rss_sources[0].enabled = current_settings.rss_enabled;
+    if (current_settings.rss_sources[0].name[0] == '\0') {
+        strncpy(current_settings.rss_sources[0].name, "Primary RSS", SETTINGS_MAX_RSS_NAME_LEN);
+        current_settings.rss_sources[0].name[SETTINGS_MAX_RSS_NAME_LEN] = '\0';
+    }
+    strncpy(current_settings.rss_sources[0].url, current_settings.rss_url, SETTINGS_MAX_URL_LEN);
+    current_settings.rss_sources[0].url[SETTINGS_MAX_URL_LEN] = '\0';
+    normalize_rss_sources(&current_settings);
 
     for (int i = 0; i < MAX_MESSAGES; i++) {
         char key[16];
@@ -147,6 +216,19 @@ esp_err_t settings_save(const app_settings_t *settings)
     esp_err_t url_err = nvs_set_str(handle, "rss_url", current_settings.rss_url);
     if (url_err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to save rss_url: %s", esp_err_to_name(url_err));
+    }
+    nvs_set_u8(handle, "rss_count", current_settings.rss_source_count);
+    for (int i = 0; i < current_settings.rss_source_count; i++) {
+        char key[20];
+
+        snprintf(key, sizeof(key), "rs%d_en", i);
+        nvs_set_u8(handle, key, current_settings.rss_sources[i].enabled ? 1 : 0);
+
+        snprintf(key, sizeof(key), "rs%d_name", i);
+        nvs_set_str(handle, key, current_settings.rss_sources[i].name);
+
+        snprintf(key, sizeof(key), "rs%d_url", i);
+        nvs_set_str(handle, key, current_settings.rss_sources[i].url);
     }
 
     err = nvs_commit(handle);

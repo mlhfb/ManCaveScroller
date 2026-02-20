@@ -16,10 +16,10 @@ WiFi-controlled scrolling LED display for a man cave.
 ## Project Structure
 ```
 src/
-  main.c              - Boot orchestration + main display loop (drives scroller directly)
+  main.c              - Boot orchestration + main display loop + RSS source scheduler
   led_panel.c         - Custom RMT driver for WS2812B, framebuffer[8][32], serpentine mapping
   font.c              - 5x7 bitmap font, 95 ASCII glyphs (space through tilde), column-major
-  text_scroller.c     - Main-loop-driven horizontal scrolling, mutex-protected settings
+  text_scroller.c     - Fixed-frame horizontal scrolling with fractional speed steps (mutex-protected)
   settings.c          - NVS persistence (namespace "mancave")
   wifi_manager.c      - AP/STA dual mode, captive portal DNS, radio on/off cycling
   rss_fetcher.c       - HTTPS RSS feed fetcher, XML parser, HTML entity decoder
@@ -29,7 +29,7 @@ include/
   led_panel.h         - Framebuffer API (init, set_pixel, refresh, set_brightness, set_cols)
   font.h              - font_get_glyph() returns 5-byte column data per character
   text_scroller.h     - Scroller API (set_text, set_color, set_speed, tick)
-  settings.h          - app_settings_t struct, load/save to NVS
+  settings.h          - app_settings_t struct, message + RSS source settings, load/save to NVS
   wifi_manager.h      - WiFi mode control (AP/STA/connecting), radio_on/radio_off
   rss_fetcher.h       - RSS fetch API and item struct
   web_server.h        - Server start/stop
@@ -38,14 +38,15 @@ include/
 
 ## Architecture
 - Display driven from `app_main()` while(1) loop — NOT a FreeRTOS task
-- `scroller_tick()` renders one frame and returns delay_ms; main loop calls `vTaskDelay()`
+- `scroller_tick()` renders at a fixed frame cadence (16ms target) and returns frame delay for `vTaskDelay()`
 - WiFi/web server run as ESP-IDF background tasks
 - WiFi must be OFF during scrolling (RMT ISR conflicts with WiFi ISRs)
-- RSS fetch: radio_on → HTTP GET → radio_off, then scroll all items with WiFi off
+- RSS scheduler flow: select next enabled source -> radio_on -> HTTP GET -> radio_off -> scroll all title/description items from that source, then advance to next source
 - When intentionally stopping WiFi, set `radio_cycling=true` + `sta_retry_count=1` before `esp_wifi_stop()` to suppress disconnect handler retries
 
 ## Key Design Decisions
 - **No external LED library** - custom RMT bytes encoder for WS2812B timing (10MHz, bit0=3/9, bit1=9/3)
+- **Smooth scroller timing** - fixed 16ms frame cadence with fractional pixel stepping for smoother speed scaling
 - **Serpentine mapping** - even rows L->R, odd rows R->L (flip in led_panel.c if panel differs)
 - **Web UI embedded in C** - `web_page.h` contains full HTML as a const string, no SPIFFS needed
 - **mdns not available** - it's a managed component in ESP-IDF 5.1.1, not bundled
@@ -56,7 +57,7 @@ include/
 | Method | URI               | Purpose                              |
 |--------|-------------------|--------------------------------------|
 | GET    | /                 | Serve web UI                         |
-| GET    | /api/status       | JSON: messages, speed, WiFi, RSS     |
+| GET    | /api/status       | JSON: messages, speed, WiFi, RSS + rss_sources |
 | POST   | /api/messages     | Update all 5 messages                |
 | POST   | /api/text         | Update message[0] text (legacy)      |
 | POST   | /api/color        | Update message[0] color (legacy)     |
@@ -81,3 +82,5 @@ include/
 - Incremental builds are much faster (seconds for source-only changes)
 - Flash usage ~97% with WiFi+HTTP+TLS+RSS included
 - RAM usage ~16%
+
+
