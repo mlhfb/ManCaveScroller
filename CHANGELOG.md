@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- Added BIG10 (filtered NCAA basketball) as a selectable sports RSS feed in the Advanced config page and `/api/rss` settings payload.
+- **RSS source scheduler foundation** for future multi-feed support
+  - New settings model fields: `rss_source_count` and `rss_sources[]`
+  - Legacy `/api/rss` endpoint remains supported and maps to source slot 0
+  - `/api/status` now includes `rss_source_count` and `rss_sources`
 - **RSS news feed support** — scroll headlines from any RSS feed (e.g., NPR, BBC)
   - Enable and configure via the Advanced page in the web UI
   - Each RSS item scrolls its title then description, with rotating colors (white, yellow, green, red, blue, cyan, violet)
@@ -31,6 +36,11 @@
   - New `/api/factory-reset` endpoint for full device reset
 
 ### Changed
+- RSS playback now uses a deterministic source-by-source scheduler (single active feed in memory)
+  - Fetch source A, display all its title/description items, then move to next source
+  - Failed sources use retry backoff and are retried automatically in the background
+  - Custom messages are used as fallback while all sources are cooling down/unavailable
+- Scrolling engine now uses fixed-frame timing with fractional pixel stepping for smoother motion and faster top-end speed
 - WiFi is now fully off during normal scrolling in STA mode (eliminates display glitches caused by WiFi ISRs interfering with RMT timing)
 - `wifi_manager_radio_on()` now returns `bool` indicating connection success/failure
 - `wifi_manager_radio_on()` no longer auto-closes after 2 seconds — stays connected until `radio_off()` is called
@@ -44,6 +54,7 @@
 - WiFi password auto-populates on page load from saved settings
 
 ### Fixed
+- RSS recovery bug: if RSS fetch failed once (WiFi/Internet loss), RSS could get stuck in custom-message-only mode without retry (fixes #4)
 - Display glitches (random colored pixels) caused by WiFi radio interrupts preempting the RMT encoder — resolved by keeping WiFi off during display operation (fixes #1)
 - WiFi disconnect handler race condition — `esp_wifi_stop()` during intentional radio cycling triggered spurious retry attempts with 2-second blocking delays; now suppressed via `radio_cycling` flag
 - Default settings now enable RSS with NPR feed URL pre-configured (previously blank, causing confusion with placeholder text)
@@ -61,3 +72,6 @@
 - Persistent settings via NVS flash
 - Custom RMT driver for WS2812B (no external dependencies)
 - 5x7 bitmap font covering printable ASCII
+
+
+

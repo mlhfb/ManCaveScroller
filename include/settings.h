@@ -10,6 +10,8 @@
 #define SETTINGS_MAX_PASS_LEN    64
 #define MAX_MESSAGES              5
 #define SETTINGS_MAX_URL_LEN     256
+#define MAX_RSS_SOURCES           8
+#define SETTINGS_MAX_RSS_NAME_LEN 24
 
 typedef struct {
     char text[SETTINGS_MAX_TEXT_LEN + 1];
@@ -20,6 +22,12 @@ typedef struct {
 } message_t;
 
 typedef struct {
+    bool enabled;
+    char name[SETTINGS_MAX_RSS_NAME_LEN + 1];
+    char url[SETTINGS_MAX_URL_LEN + 1];
+} rss_source_t;
+
+typedef struct {
     message_t messages[MAX_MESSAGES];
     uint8_t speed;       // 1-10
     uint8_t brightness;  // 0-255
@@ -28,6 +36,17 @@ typedef struct {
     char wifi_password[SETTINGS_MAX_PASS_LEN + 1];
     bool rss_enabled;
     char rss_url[SETTINGS_MAX_URL_LEN + 1];
+    bool rss_npr_enabled;
+    bool rss_sports_enabled;
+    char rss_sports_base_url[SETTINGS_MAX_URL_LEN + 1];
+    bool rss_sport_mlb_enabled;
+    bool rss_sport_nhl_enabled;
+    bool rss_sport_ncaaf_enabled;
+    bool rss_sport_nfl_enabled;
+    bool rss_sport_nba_enabled;
+    bool rss_sport_big10_enabled;
+    uint8_t rss_source_count;
+    rss_source_t rss_sources[MAX_RSS_SOURCES];
 } app_settings_t;
 
 esp_err_t settings_init(void);

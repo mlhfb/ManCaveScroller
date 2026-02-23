@@ -2,11 +2,15 @@
 #define FONT_H
 
 #include <stdint.h>
+#include "esp_err.h"
 
 #define FONT_WIDTH      5
 #define FONT_HEIGHT     7
 #define FONT_FIRST_CHAR 32  // space
 #define FONT_LAST_CHAR  126 // tilde
+
+// Load 5x7 bitmap data from LittleFS.
+esp_err_t font_init(void);
 
 // Returns pointer to 5 bytes of column data for the given character.
 // Each byte represents one column (bit 0 = top row, bit 6 = bottom row).
