@@ -1,86 +1,128 @@
 # ManCaveScroller
 
-WiFi-controlled scrolling LED display for a man cave.
+ESP32 LED ticker with local web configuration, LittleFS-hosted assets, and cache-backed RSS/sports feeds.
 
 ## Hardware
-- **Board:** ESP32 DoIt DevKit V1
-- **Display:** WS2812B 8x32 LED panel (256 pixels, serpentine/zigzag layout)
-- **Data pin:** GPIO 13 (configurable via `-DLED_STRIP_GPIO=XX` in platformio.ini)
+- Board: ESP32 DoIt DevKit V1
+- Display: WS2812B matrix panels (8 rows x 32 columns each), serpentine layout
+- Supported widths: 32, 64, 96, 128 columns
+- LED data pin: GPIO 5 (set by `-DLED_STRIP_GPIO=5` in `platformio.ini`)
+- Config button: BOOT button (GPIO 0)
 
-## Tech Stack
-- **Framework:** ESP-IDF 5.1.1 (NOT Arduino)
-- **Language:** C with FreeRTOS
-- **Build:** PlatformIO (`pio run` to build, Upload button in VS Code to flash)
-- **PlatformIO CLI path:** `C:\Users\mikelch\.platformio\penv\Scripts\pio.exe`
+## Firmware Stack
+- Framework: ESP-IDF 5.1.1 (no Arduino)
+- Language: C + FreeRTOS primitives
+- Build system: PlatformIO (`framework = espidf`)
+- Web server: `esp_http_server`
+- HTTP client: `esp_http_client` with CRT bundle
+- Local assets/filesystem: LittleFS (`esp_littlefs`)
+- Settings storage: NVS (`namespace = mancave`)
 
-## Project Structure
-```
-src/
-  main.c              - Boot orchestration + main display loop + RSS source scheduler
-  led_panel.c         - Custom RMT driver for WS2812B, framebuffer[8][32], serpentine mapping
-  font.c              - 5x7 bitmap font, 95 ASCII glyphs (space through tilde), column-major
-  text_scroller.c     - Fixed-frame horizontal scrolling with fractional speed steps (mutex-protected)
-  settings.c          - NVS persistence (namespace "mancave")
-  wifi_manager.c      - AP/STA dual mode, captive portal DNS, radio on/off cycling
-  rss_fetcher.c       - HTTPS RSS feed fetcher, XML parser, HTML entity decoder
-  web_server.c        - esp_http_server with JSON API endpoints, uses cJSON
-  CMakeLists.txt      - ESP-IDF component registration + dependencies
-include/
-  led_panel.h         - Framebuffer API (init, set_pixel, refresh, set_brightness, set_cols)
-  font.h              - font_get_glyph() returns 5-byte column data per character
-  text_scroller.h     - Scroller API (set_text, set_color, set_speed, tick)
-  settings.h          - app_settings_t struct, message + RSS source settings, load/save to NVS
-  wifi_manager.h      - WiFi mode control (AP/STA/connecting), radio_on/radio_off
-  rss_fetcher.h       - RSS fetch API and item struct
-  web_server.h        - Server start/stop
-  web_page.h          - Embedded HTML/CSS/JS dark theme UI (single-page, inline everything)
-```
+## Flash Layout
+From `partitions.csv`:
+- `factory` app partition: 0x200000 (2 MB)
+- `littlefs` data partition: 0x1F0000 (~1.94 MB)
+- Total device flash: 4 MB
 
-## Architecture
-- Display driven from `app_main()` while(1) loop — NOT a FreeRTOS task
-- `scroller_tick()` renders at a fixed frame cadence (16ms target) and returns frame delay for `vTaskDelay()`
-- WiFi/web server run as ESP-IDF background tasks
-- WiFi must be OFF during scrolling (RMT ISR conflicts with WiFi ISRs)
-- RSS scheduler flow: select next enabled source -> radio_on -> HTTP GET -> radio_off -> scroll all title/description items from that source, then advance to next source
-- When intentionally stopping WiFi, set `radio_cycling=true` + `sta_retry_count=1` before `esp_wifi_stop()` to suppress disconnect handler retries
+This is why app-size reporting uses a 2 MB app limit, not 4 MB.
 
-## Key Design Decisions
-- **No external LED library** - custom RMT bytes encoder for WS2812B timing (10MHz, bit0=3/9, bit1=9/3)
-- **Smooth scroller timing** - fixed 16ms frame cadence with fractional pixel stepping for smoother speed scaling
-- **Serpentine mapping** - even rows L->R, odd rows R->L (flip in led_panel.c if panel differs)
-- **Web UI embedded in C** - `web_page.h` contains full HTML as a const string, no SPIFFS needed
-- **mdns not available** - it's a managed component in ESP-IDF 5.1.1, not bundled
-- **Default brightness: 32/255** - conservative to avoid high current draw (256 LEDs at full = ~15A)
-- **RMT mem_block_symbols MUST be 256** (not 64) for WiFi coexistence
+## External Sports Backend
+This project integrates with:
+- `https://github.com/mlhfb/ManCaveBackEnd`
 
-## API Endpoints
-| Method | URI               | Purpose                              |
-|--------|-------------------|--------------------------------------|
-| GET    | /                 | Serve web UI                         |
-| GET    | /api/status       | JSON: messages, speed, WiFi, RSS + rss_sources |
-| POST   | /api/messages     | Update all 5 messages                |
-| POST   | /api/text         | Update message[0] text (legacy)      |
-| POST   | /api/color        | Update message[0] color (legacy)     |
-| POST   | /api/speed        | Update scroll speed (1-10)           |
-| POST   | /api/brightness   | Update brightness (1-255)            |
-| POST   | /api/appearance   | Set speed + brightness together      |
-| POST   | /api/wifi         | Set WiFi credentials                 |
-| POST   | /api/advanced     | Set panel size (32/64/96/128)        |
-| POST   | /api/rss          | Enable/configure RSS feed            |
-| POST   | /api/factory-reset| Erase NVS and restart                |
+Primary endpoint expected by this firmware:
+- `.../espn_scores_rss.php?sport=<sport>&format=rss`
 
-## WiFi Behavior
-1. On boot: check NVS for stored WiFi credentials
-2. If found: try STA mode (15s timeout, 5 retries), then stop WiFi radio
-3. If none or failed: start AP mode as "ManCave" (open, no password)
-4. AP mode includes captive portal DNS (redirects all domains to 192.168.4.1)
-5. STA mode: WiFi off during scrolling, BOOT button toggles config mode
-6. Config mode: WiFi on, web server accessible, press BOOT again to exit
+Supported sports used here:
+- `mlb`, `nhl`, `ncaaf`, `nfl`, `nba`, `big10`
 
-## Build Notes
-- Full rebuild takes ~5-10 minutes (ESP-IDF compiles everything)
-- Incremental builds are much faster (seconds for source-only changes)
-- Flash usage ~97% with WiFi+HTTP+TLS+RSS included
-- RAM usage ~16%
+URL input behavior in firmware settings:
+- If user enters host/path only, firmware prepends `https://` (if missing) and appends `espn_scores_rss.php`.
+- If user enters an explicit `.php` path, firmware uses it directly and only appends query params.
 
+## Runtime Architecture
+- Main control loop lives in `src/main.c` (`app_main`), not a dedicated display task.
+- `scroller_tick()` drives frame updates (~16 ms cadence).
+- WiFi runs as ESP-IDF background tasks.
+- In STA mode, WiFi radio is usually off during scrolling to reduce display glitches.
 
+Content pipeline:
+1. Settings build enabled RSS source list in deterministic order.
+2. On refresh cycle, each source is fetched and cached to LittleFS (`/littlefs/cache`).
+3. Display pulls random cached items (title then description).
+4. Random picker is no-repeat until all cached items are shown once, then resets.
+5. On outages, cached data is still used.
+6. If no cache is available, falls back to custom messages.
+
+## RSS/Cache Notes
+- Cache module: `src/rss_cache.c` / `include/rss_cache.h`
+- Cache keying: per-source URL hash
+- Selection API:
+  - `rss_cache_pick_random_item(...)`
+  - `rss_cache_pick_random_item_ex(...)` (returns flags + cycle-reset info)
+- Current item flag reserved for future scheduling:
+  - `RSS_CACHE_ITEM_FLAG_LIVE` (heuristic from title/description text)
+
+## Settings Model (high-level)
+`app_settings_t` includes:
+- 5 custom messages (text/color/enabled)
+- speed, brightness, panel width
+- WiFi credentials
+- RSS global toggle
+- NPR URL + `rss_npr_enabled`
+- Sports toggle + base URL + per-sport toggles (`mlb`, `nhl`, `ncaaf`, `nfl`, `nba`, `big10`)
+- materialized `rss_sources[]` list for runtime
+
+## Web UI + API
+UI source:
+- `littlefs/web/index.html`
+
+Served from:
+- `GET /` -> `LITTLEFS_WEB_INDEX_PATH`
+
+Primary API endpoints:
+- `GET /api/status`
+- `POST /api/messages`
+- `POST /api/text` (legacy)
+- `POST /api/color` (legacy)
+- `POST /api/speed`
+- `POST /api/brightness`
+- `POST /api/appearance`
+- `POST /api/wifi`
+- `POST /api/advanced`
+- `POST /api/rss`
+- `POST /api/factory-reset`
+
+`/api/rss` payload supports:
+- `enabled`
+- `url` (NPR URL)
+- `npr_enabled`
+- `sports_enabled`
+- `sports_base_url`
+- `sports` object with booleans: `mlb`, `nhl`, `ncaaf`, `nfl`, `nba`, `big10`
+
+## Project Layout (current)
+- `src/main.c` - boot orchestration, display loop, RSS refresh/playback orchestration
+- `src/led_panel.c` - WS2812B RMT driver + framebuffer mapping
+- `src/text_scroller.c` - scrolling renderer/timing
+- `src/settings.c` - defaults, NVS load/save, RSS source manifest building
+- `src/wifi_manager.c` - AP/STA lifecycle, captive DNS, radio on/off
+- `src/web_server.c` - HTTP endpoints + JSON handlers
+- `src/rss_fetcher.c` - RSS HTTP fetch + XML parse/sanitize
+- `src/rss_cache.c` - LittleFS cache + non-repeating random picker
+- `include/storage_paths.h` - LittleFS path constants
+- `littlefs/` - deployed web/font/config assets
+
+## Build/Flash Commands
+- Build: `pio run`
+- Upload firmware: `pio run -t upload`
+- Upload filesystem image: `pio run -t uploadfs`
+- Serial monitor: `pio device monitor -b 115200`
+
+## Important Practical Notes
+- Keep WiFi off during normal scrolling in STA mode to reduce LED artifacts.
+- If RSS behavior changes, update all three layers together:
+  - `littlefs/web/index.html`
+  - `src/web_server.c`
+  - `src/settings.c`
+- If sports backend contract changes, sync parser assumptions and UI labels.

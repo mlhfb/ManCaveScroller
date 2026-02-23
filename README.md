@@ -14,6 +14,7 @@ WiFi-controlled scrolling LED display built on ESP32. Set your message, color, s
 - **Persistent settings** — saved to NVS flash, survives reboots
 - **Config mode via BOOT button** — press to enable WiFi and access the web UI, press again to resume glitch-free scrolling
 - **RSS news feed** � deterministic source-by-source playback with automatic retry/backoff and fallback to custom messages when feeds are unavailable
+- **Sports score feeds** - supports `mlb`, `nhl`, `ncaaf`, `nfl`, `nba`, and `big10` via `espn_scores_rss.php`
 - **Advanced settings** — configurable panel size, RSS feed, factory reset
 - **No external dependencies** — custom RMT driver, embedded web page, no SPIFFS
 
@@ -67,6 +68,9 @@ pio device monitor -b 115200
 | `POST` | `/api/advanced` | `{"panel_cols":64}` | Set panel size (32/64/96/128) |
 | `POST` | `/api/rss` | `{"enabled":true,"url":"..."}` | Enable/configure RSS feed |
 | `POST` | `/api/factory-reset` | — | Erase NVS and restart device |
+
+Sports feed selections are sent in the `/api/rss` payload under `sports`, for example:
+`{"sports":{"mlb":true,"nhl":true,"ncaaf":true,"nfl":true,"nba":true,"big10":true}}`
 
 ## Project Structure
 

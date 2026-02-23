@@ -36,6 +36,15 @@ typedef struct {
     char wifi_password[SETTINGS_MAX_PASS_LEN + 1];
     bool rss_enabled;
     char rss_url[SETTINGS_MAX_URL_LEN + 1];
+    bool rss_npr_enabled;
+    bool rss_sports_enabled;
+    char rss_sports_base_url[SETTINGS_MAX_URL_LEN + 1];
+    bool rss_sport_mlb_enabled;
+    bool rss_sport_nhl_enabled;
+    bool rss_sport_ncaaf_enabled;
+    bool rss_sport_nfl_enabled;
+    bool rss_sport_nba_enabled;
+    bool rss_sport_big10_enabled;
     uint8_t rss_source_count;
     rss_source_t rss_sources[MAX_RSS_SOURCES];
 } app_settings_t;

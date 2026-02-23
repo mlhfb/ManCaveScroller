@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Added BIG10 (filtered NCAA basketball) as a selectable sports RSS feed in the Advanced config page and `/api/rss` settings payload.
 - **RSS source scheduler foundation** for future multi-feed support
   - New settings model fields: `rss_source_count` and `rss_sources[]`
   - Legacy `/api/rss` endpoint remains supported and maps to source slot 0

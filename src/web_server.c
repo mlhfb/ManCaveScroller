@@ -1,11 +1,12 @@
 #include "web_server.h"
-#include "web_page.h"
 #include "text_scroller.h"
 #include "settings.h"
 #include "wifi_manager.h"
 #include "led_panel.h"
+#include "storage_paths.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -15,12 +16,36 @@
 static const char *TAG = "web_server";
 static httpd_handle_t server = NULL;
 
+static esp_err_t send_file_response(httpd_req_t *req, const char *path, const char *content_type)
+{
+    FILE *fp = fopen(path, "rb");
+    if (!fp) {
+        ESP_LOGW(TAG, "File not found: %s", path);
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, content_type);
+
+    char chunk[1024];
+    size_t read = 0;
+    do {
+        read = fread(chunk, 1, sizeof(chunk), fp);
+        if (read > 0 && httpd_resp_send_chunk(req, chunk, read) != ESP_OK) {
+            fclose(fp);
+            httpd_resp_sendstr_chunk(req, NULL);
+            return ESP_FAIL;
+        }
+    } while (read > 0);
+
+    fclose(fp);
+    return httpd_resp_send_chunk(req, NULL, 0);
+}
+
 // GET / — serve the web page
 static esp_err_t root_handler(httpd_req_t *req)
 {
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_send(req, WEB_PAGE, strlen(WEB_PAGE));
-    return ESP_OK;
+    return send_file_response(req, LITTLEFS_WEB_INDEX_PATH, "text/html");
 }
 
 // GET /api/status — return current settings as JSON
@@ -57,10 +82,20 @@ static esp_err_t status_handler(httpd_req_t *req)
     cJSON_AddStringToObject(root, "wifi_password", s->wifi_password);
     cJSON_AddBoolToObject(root, "rss_enabled", s->rss_enabled);
     cJSON_AddStringToObject(root, "rss_url", s->rss_url);
+    cJSON_AddBoolToObject(root, "rss_npr_enabled", s->rss_npr_enabled);
+    cJSON_AddBoolToObject(root, "rss_sports_enabled", s->rss_sports_enabled);
+    cJSON_AddStringToObject(root, "rss_sports_base_url", s->rss_sports_base_url);
+    cJSON *rss_sports = cJSON_AddObjectToObject(root, "rss_sports");
+    cJSON_AddBoolToObject(rss_sports, "mlb", s->rss_sport_mlb_enabled);
+    cJSON_AddBoolToObject(rss_sports, "nhl", s->rss_sport_nhl_enabled);
+    cJSON_AddBoolToObject(rss_sports, "ncaaf", s->rss_sport_ncaaf_enabled);
+    cJSON_AddBoolToObject(rss_sports, "nfl", s->rss_sport_nfl_enabled);
+    cJSON_AddBoolToObject(rss_sports, "nba", s->rss_sport_nba_enabled);
+    cJSON_AddBoolToObject(rss_sports, "big10", s->rss_sport_big10_enabled);
     cJSON_AddNumberToObject(root, "rss_source_count", s->rss_source_count);
     cJSON *rss_sources = cJSON_AddArrayToObject(root, "rss_sources");
     int source_count = s->rss_source_count;
-    if (source_count < 1 || source_count > MAX_RSS_SOURCES) source_count = 1;
+    if (source_count > MAX_RSS_SOURCES) source_count = MAX_RSS_SOURCES;
     for (int i = 0; i < source_count; i++) {
         cJSON *src = cJSON_CreateObject();
         cJSON_AddStringToObject(src, "name", s->rss_sources[i].name);
@@ -336,6 +371,7 @@ static esp_err_t rss_handler(httpd_req_t *req)
 
     app_settings_t *s = settings_get();
 
+    // Legacy fields (global RSS + NPR URL) remain supported.
     cJSON *en = cJSON_GetObjectItem(json, "enabled");
     if (cJSON_IsBool(en)) s->rss_enabled = cJSON_IsTrue(en);
 
@@ -344,17 +380,57 @@ static esp_err_t rss_handler(httpd_req_t *req)
         strncpy(s->rss_url, url->valuestring, SETTINGS_MAX_URL_LEN);
         s->rss_url[SETTINGS_MAX_URL_LEN] = '\0';
     }
-    // Legacy endpoint controls source slot 0.
-    s->rss_source_count = 1;
-    s->rss_sources[0].enabled = s->rss_enabled;
-    if (s->rss_sources[0].name[0] == '\0') {
-        strncpy(s->rss_sources[0].name, "Primary RSS", SETTINGS_MAX_RSS_NAME_LEN);
-        s->rss_sources[0].name[SETTINGS_MAX_RSS_NAME_LEN] = '\0';
-    }
-    strncpy(s->rss_sources[0].url, s->rss_url, SETTINGS_MAX_URL_LEN);
-    s->rss_sources[0].url[SETTINGS_MAX_URL_LEN] = '\0';
 
-    ESP_LOGI(TAG, "RSS save: enabled=%d, url='%.60s'", s->rss_enabled, s->rss_url);
+    cJSON *npr_en = cJSON_GetObjectItem(json, "npr_enabled");
+    if (cJSON_IsBool(npr_en)) {
+        s->rss_npr_enabled = cJSON_IsTrue(npr_en);
+    }
+
+    cJSON *sports_en = cJSON_GetObjectItem(json, "sports_enabled");
+    if (cJSON_IsBool(sports_en)) {
+        s->rss_sports_enabled = cJSON_IsTrue(sports_en);
+    }
+
+    cJSON *sports_base = cJSON_GetObjectItem(json, "sports_base_url");
+    if (cJSON_IsString(sports_base)) {
+        strncpy(s->rss_sports_base_url, sports_base->valuestring, SETTINGS_MAX_URL_LEN);
+        s->rss_sports_base_url[SETTINGS_MAX_URL_LEN] = '\0';
+    }
+
+    cJSON *sports = cJSON_GetObjectItem(json, "sports");
+    if (cJSON_IsObject(sports)) {
+        cJSON *mlb = cJSON_GetObjectItem(sports, "mlb");
+        if (cJSON_IsBool(mlb)) s->rss_sport_mlb_enabled = cJSON_IsTrue(mlb);
+
+        cJSON *nhl = cJSON_GetObjectItem(sports, "nhl");
+        if (cJSON_IsBool(nhl)) s->rss_sport_nhl_enabled = cJSON_IsTrue(nhl);
+
+        cJSON *ncaaf = cJSON_GetObjectItem(sports, "ncaaf");
+        if (cJSON_IsBool(ncaaf)) s->rss_sport_ncaaf_enabled = cJSON_IsTrue(ncaaf);
+
+        cJSON *nfl = cJSON_GetObjectItem(sports, "nfl");
+        if (cJSON_IsBool(nfl)) s->rss_sport_nfl_enabled = cJSON_IsTrue(nfl);
+
+        cJSON *nba = cJSON_GetObjectItem(sports, "nba");
+        if (cJSON_IsBool(nba)) s->rss_sport_nba_enabled = cJSON_IsTrue(nba);
+
+        cJSON *big10 = cJSON_GetObjectItem(sports, "big10");
+        if (cJSON_IsBool(big10)) s->rss_sport_big10_enabled = cJSON_IsTrue(big10);
+    }
+
+    ESP_LOGI(TAG,
+             "RSS save: enabled=%d npr_en=%d npr='%.60s' sports_en=%d base='%.60s' [mlb=%d nhl=%d ncaaf=%d nfl=%d nba=%d big10=%d]",
+             s->rss_enabled,
+             s->rss_npr_enabled,
+             s->rss_url,
+             s->rss_sports_enabled,
+             s->rss_sports_base_url,
+             s->rss_sport_mlb_enabled,
+             s->rss_sport_nhl_enabled,
+             s->rss_sport_ncaaf_enabled,
+             s->rss_sport_nfl_enabled,
+             s->rss_sport_nba_enabled,
+             s->rss_sport_big10_enabled);
     settings_save(s);
     cJSON_Delete(json);
     send_ok(req, "RSS settings updated");
