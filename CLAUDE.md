@@ -11,8 +11,9 @@ ESP32 LED ticker with local web configuration, LittleFS-hosted assets, and cache
 
 ## Firmware Stack
 - Framework: ESP-IDF 5.1.1 (no Arduino)
-- Language: C + FreeRTOS primitives
+- Language: C/C++ + FreeRTOS primitives
 - Build system: PlatformIO (`framework = espidf`)
+- LED driver: FastLED (`components/esp-idf-fastled`)
 - Web server: `esp_http_server`
 - HTTP client: `esp_http_client` with CRT bundle
 - Local assets/filesystem: LittleFS (`esp_littlefs`)
@@ -103,13 +104,14 @@ Primary API endpoints:
 
 ## Project Layout (current)
 - `src/main.c` - boot orchestration, display loop, RSS refresh/playback orchestration
-- `src/led_panel.c` - WS2812B RMT driver + framebuffer mapping
+- `src/led_panel.cpp` - FastLED-backed WS2812B framebuffer mapping + refresh
 - `src/text_scroller.c` - scrolling renderer/timing
 - `src/settings.c` - defaults, NVS load/save, RSS source manifest building
 - `src/wifi_manager.c` - AP/STA lifecycle, captive DNS, radio on/off
 - `src/web_server.c` - HTTP endpoints + JSON handlers
 - `src/rss_fetcher.c` - RSS HTTP fetch + XML parse/sanitize
 - `src/rss_cache.c` - LittleFS cache + non-repeating random picker
+- `components/esp-idf-fastled` - FastLED ESP-IDF component submodule
 - `include/storage_paths.h` - LittleFS path constants
 - `littlefs/` - deployed web/font/config assets
 

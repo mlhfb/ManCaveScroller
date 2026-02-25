@@ -1,0 +1,3 @@
+[submodule "components/esp-idf-fastled"]
+	path = components/esp-idf-fastled
+	url = https://github.com/mlhfb/ESP-IDF-FastLED.git

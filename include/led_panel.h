@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include "esp_err.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define PANEL_ROWS     8
 #define PANEL_MAX_COLS 128  // max 4 panels of 32
 #define PANEL_MAX_LEDS (PANEL_ROWS * PANEL_MAX_COLS)
@@ -26,5 +30,9 @@ esp_err_t led_panel_refresh(void);
 void led_panel_set_brightness(uint8_t brightness);
 void led_panel_set_cols(uint8_t cols);
 uint8_t led_panel_get_cols(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
